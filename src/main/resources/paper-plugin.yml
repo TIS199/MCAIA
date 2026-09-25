@@ -1,0 +1,60 @@
+name: MCAIA
+version: '1.0.0'
+main: com.mcaia.plugin.MCAIAPlugin
+api-version: '1.21'
+description: Minecraft AI Admin — AI-powered server management plugin
+authors:
+  - TIS199
+website: https://github.com/TIS199
+
+# These plugins are loaded first if present, but MCAIA works without them
+dependencies:
+  server:
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: false
+    LuckPerms:
+      load: BEFORE
+      required: false
+      join-classpath: false
+    Geyser-Spigot:
+      load: BEFORE
+      required: false
+      join-classpath: false
+    floodgate:
+      load: BEFORE
+      required: false
+      join-classpath: false
+
+permissions:
+  mcaia.use:
+    description: Allows the player to use the /ai command
+    default: op
+
+  mcaia.admin:
+    description: Allows access to /aiadmin commands
+    default: op
+
+  mcaia.reload:
+    description: Allows reloading the MCAIA configuration
+    default: op
+
+  mcaia.bypass-rate-limit:
+    description: Bypasses the /ai command rate limit
+    default: op
+
+  mcaia.history:
+    description: Allows viewing personal AI conversation history
+    default: op
+
+  mcaia.*:
+    description: Grants all MCAIA permissions
+    default: false
+    children:
+      mcaia.use: true
+      mcaia.admin: true
+      mcaia.reload: true
+      mcaia.bypass-rate-limit: true
+      mcaia.history: true
+

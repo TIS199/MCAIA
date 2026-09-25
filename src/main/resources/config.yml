@@ -1,0 +1,132 @@
+# ================================================================
+#   MCAIA — Minecraft AI Admin Plugin
+#   By TIS199  |  github.com/TIS199
+#   Plugin Version: 1.0.0
+# ================================================================
+
+# ⚠️  TERMS OF SERVICE  ⚠️
+# You MUST set tos-accepted to true before the plugin will work.
+# By accepting, you agree that:
+#   1. You are fully responsible for all AI-issued commands on your server.
+#   2. The developer (TIS199) is NOT liable for any damage, data loss, or
+#      player harm caused by this plugin.
+#   3. Anonymous usage telemetry (server name, username, command summary)
+#      is sent to the developer for plugin improvement.
+#   4. You will not use this plugin to violate Mojang's EULA, harm players,
+#      or break any applicable laws.
+tos-accepted: false
+
+# ================================================================
+#   COMMAND NAME
+# ================================================================
+# Change the in-game command players type.
+# Example: "ai" → /ai <prompt>   |   "ask" → /ask <prompt>
+# After changing, restart your server (not just /reload).
+command-name: "ai"
+
+# ================================================================
+#   AI SETTINGS
+# ================================================================
+ai:
+  # Your Google Gemini API key — get one at: https://aistudio.google.com/apikey
+  gemini-api-key: "YOUR_GEMINI_API_KEY_HERE"
+
+  # Maximum tokens (words) in the AI's response
+  max-tokens: 2048
+
+  # Creativity level (0.0 = very strict/deterministic, 1.0 = creative)
+  temperature: 0.3
+
+  # Number of conversation turns stored per player.
+  # Higher = AI remembers more context but uses more tokens.
+  max-history-length: 10
+
+  # How long (seconds) to wait for a player to answer an AI follow-up question.
+  query-timeout-seconds: 60
+
+  # Maximum internal AI loop iterations per request (prevents infinite loops).
+  max-iterations: 8
+  
+  # Automatically switch to the next model in models.yml if the current one
+  # returns a rate limit (429) or high demand (503) error.
+  smart-switching: true
+  
+  # Set to "free" or "paid". Used to help format rate limits properly.
+  google-ai-subscription: "free"
+
+# ================================================================
+#   PERMISSIONS
+# ================================================================
+permissions:
+  # If Vault or LuckPerms is NOT installed, the plugin falls back to:
+  #   1. Checking if the player is OP
+  #   2. Checking the permitted-players list below
+  # Set to false to allow ALL players to use /ai when no perm plugin is found
+  fallback-require-op: true
+
+  # Players listed here can ALWAYS use /ai regardless of OP status
+  # (only applies when no Vault/LuckPerms is detected)
+  # Use exact in-game names. Bedrock players: use their name WITHOUT the . prefix.
+  permitted-players:
+    # - "Steve"
+    # - "Alex"
+
+# ================================================================
+#   RATE LIMITING
+# ================================================================
+rate-limit:
+  enabled: true
+  # Seconds a player must wait between /ai requests
+  cooldown-seconds: 15
+
+# ================================================================
+#   LOGGING
+# ================================================================
+logging:
+  # Write logs to plugins/MCAIA/logs/mcaia-YYYY-MM-DD.log
+  file-logging: true
+
+  # Debug mode: prints full AI request/response JSON to console and log file.
+  # WARNING: may expose sensitive config values — use only for troubleshooting.
+  debug-mode: false
+
+  # Discord webhook URL for server admin log notifications.
+  # Leave empty ("") to disable. Supports action, execution, refusal, and error events.
+  admin-webhook-url: ""
+
+  # Which events trigger webhook notifications (admin webhook only).
+  log-events:
+    - AI_COMMAND_USED
+    - COMMAND_EXECUTED
+    - COMMAND_REFUSED
+    - COMMAND_BLOCKED
+    - ERRORS
+    - RATE_LIMITED
+
+# ================================================================
+#   PLUGIN UI / MESSAGES
+# ================================================================
+# Chat prefix (MiniMessage format)
+prefix: "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> "
+
+# Message shown to players while the AI is processing
+thinking-message: "<gray><i>🤖 AI is thinking...</i></gray>"
+
+# ================================================================
+#   GEYSER / FLOODGATE (Bedrock player support)
+# ================================================================
+geyser:
+  # Strip the Floodgate prefix character (.) from Bedrock player names in logs.
+  strip-bedrock-prefix: true
+
+  # Allow Bedrock players (connected via Geyser + Floodgate) to use /ai.
+  # Bedrock players use the same permissions as Java players.
+  allow-bedrock-players: true
+
+# ================================================================
+#   WELCOME MESSAGE
+# ================================================================
+welcome:
+  enabled: true
+  message: "<yellow>Welcome, <white><player></white>! Type <aqua>/<cmd> help</aqua> for AI assistance.</yellow>"
+

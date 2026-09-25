@@ -1,0 +1,16 @@
+# ================================================================
+#   BANNED COMMANDS
+# ================================================================
+# Commands the AI is NEVER allowed to execute, regardless of the
+# player's request or permissions.
+# Add any command you want to block here (without the /).
+
+banned-commands:
+  - "stop"
+  - "restart"
+  - "reload"
+  - "op"
+  - "deop"
+  - "whitelist"
+  - "ban-ip"
+  - "pardon-ip"
