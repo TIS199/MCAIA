@@ -8,12 +8,10 @@
 > [!WARNING]
 > MCAIA can run commands as the server console. The configurable command blocklist is a safeguard, not a complete security boundary—and definitely not a tiny digital force field. Review AI-issued actions, configure the blocklist for your server, and only grant access to players you trust.
 
-```markdown
-![Screenshot](https://raw.githubusercontent.com/TIS199/MCAIA/refs/heads/main/MCAIA.png)
-```
-
 ## Features
 
+
+![MCAIA](./MCAIA.png)
 - Natural-language requests through a configurable in-game command (default: `/ai`).
 - Gemini-powered, multi-step interactions: answer players, query live server state, ask follow-up questions, or execute console commands.
 - Live queries for online players, player details, worlds, installed plugins, TPS, and general server information.
