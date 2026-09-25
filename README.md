@@ -109,9 +109,6 @@ Using MCAIA sends prompts and relevant conversation context to Google's Gemini A
 
 Server owners should review this behavior and the Terms of Service in `config.yml` before enabling the plugin. Treat prompts, server logs, webhook events, API keys, and generated configuration as potentially sensitive.
 
-> [!CAUTION]
-> The current source contains a hard-coded developer webhook credential. Revoke/rotate that credential and remove it from the source and Git history before making a public repository. Do not rely on deleting the line in a later commit: previously pushed commits can still expose it.
-
 ## Building
 
 The Gradle wrapper is included. With Java 25 installed, run:
