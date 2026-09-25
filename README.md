@@ -8,6 +8,10 @@
 > [!WARNING]
 > MCAIA can run commands as the server console. The configurable command blocklist is a safeguard, not a complete security boundary—and definitely not a tiny digital force field. Review AI-issued actions, configure the blocklist for your server, and only grant access to players you trust.
 
+## Download
+[![GitHub Release (including pre-releases)](https://img.shields.io/github/v/release/TIS199/MCAIA?include_prereleases)](https://github.com/TIS199/MCAIA/releases)
+[![Hanger Release](https://img.shields.io/badge/Hanger-Release-blue?logo=papermc)](https://hangar.papermc.io/TIS199/MCAIA)
+
 ## Features
 
 
