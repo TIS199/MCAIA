@@ -1,10 +1,10 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "9.3.5"
+    id("com.gradleup.shadow") version "9.3.2"
 }
 
 group = "com.mcaia.plugin"
-version = "1.0.0"
+version = "1.0.5"
 
 repositories {
     mavenCentral()

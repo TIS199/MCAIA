@@ -1,5 +1,5 @@
 name: MCAIA
-version: '1.0.0'
+version: '1.0.5'
 main: com.mcaia.plugin.MCAIAPlugin
 api-version: '1.21'
 description: Minecraft AI Admin — AI-powered server management plugin
@@ -57,4 +57,3 @@ permissions:
       mcaia.reload: true
       mcaia.bypass-rate-limit: true
       mcaia.history: true
-

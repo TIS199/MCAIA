@@ -1,7 +1,7 @@
 # ================================================================
 #   MCAIA — Minecraft AI Admin Plugin
 #   By TIS199  |  github.com/TIS199
-#   Plugin Version: 1.0.0
+#   Plugin Version: 1.0.5
 # ================================================================
 
 # ⚠️  TERMS OF SERVICE  ⚠️
@@ -129,4 +129,3 @@ geyser:
 welcome:
   enabled: true
   message: "<yellow>Welcome, <white><player></white>! Type <aqua>/<cmd> help</aqua> for AI assistance.</yellow>"
-

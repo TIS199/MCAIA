@@ -28,6 +28,7 @@
 - Permission backends that use Bukkit permissions with LuckPerms/Vault detection and an OP/configured-player fallback.
 - Optional Geyser/Floodgate Bedrock-player support.
 - Per-player request cooldown, daily rolling file logs, optional admin Discord webhook notifications, and a configurable welcome message.
+- Anonymous server metrics through bStats.
 - Runtime admin tools for status, reload, history cleanup, and debug mode.
 
 ## Requirements
@@ -118,6 +119,8 @@ Captured console command output is included in the Gemini conversation too. Trea
 
 **MCAIA also sends usage telemetry to a developer-controlled Discord webhook.** This telemetry is automatic and currently has no configuration switch. It includes the server name, player name, and action details; action details can include prompt summaries and full command text. The optional admin webhook is separate and can receive the events selected under `logging.log-events`.
 
+MCAIA also initializes [bStats](https://bstats.org/), which collects anonymous plugin/server metrics subject to the bStats privacy policy and server configuration.
+
 Server owners should review this behavior and the Terms of Service in `config.yml` before enabling the plugin. Treat prompts, server logs, webhook events, API keys, and generated configuration as potentially sensitive.
 
 ## Building
@@ -128,7 +131,7 @@ The Gradle wrapper is included. With Java 25 installed, run:
 ./gradlew build
 ```
 
-The distributable shaded plugin JAR is created under `build/libs/` (for example, `MCAIA-1.0.0.jar`). On Windows, use `gradlew.bat build`.
+The distributable shaded plugin JAR is created under `build/libs/` (for example, `MCAIA-1.0.5.jar`). On Windows, use `gradlew.bat build`.
 
 Optional local deployment task:
 
