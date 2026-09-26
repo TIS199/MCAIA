@@ -7,9 +7,18 @@
 
 > [!WARNING]
 > MCAIA can run commands as the server console. The configurable command blocklist is a safeguard, not a complete security boundary—and definitely not a tiny digital force field. Review AI-issued actions, configure the blocklist for your server, and only grant access to players you trust.
+ 
+> **Supported Versions: PaperMC 26.2 , 26.3**
+
+## Download
+
+[![GitHub Release (including pre-releases)](https://img.shields.io/github/v/release/TIS199/MCAIA?include_prereleases)](https://github.com/TIS199/MCAIA/releases)
+[![Hanger Release](https://img.shields.io/badge/Hanger-Release-blue?logo=papermc)](https://hangar.papermc.io/TIS199/MCAIA)
 
 ## Features
 
+
+![MCAIA](./MCAIA.png)
 - Natural-language requests through a configurable in-game command (default: `/ai`).
 - Gemini-powered, multi-step interactions: answer players, query live server state, ask follow-up questions, or execute console commands and receive the command sender's captured output.
 - Live queries for online players, player details, worlds, installed plugins, TPS, and general server information.
