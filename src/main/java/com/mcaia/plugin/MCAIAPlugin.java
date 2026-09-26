@@ -14,6 +14,7 @@ import com.mcaia.plugin.logging.WebhookLogger;
 import com.mcaia.plugin.permissions.PermissionManager;
 import com.mcaia.plugin.util.RateLimiter;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import org.bstats.bukkit.Metrics;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import org.bukkit.configuration.file.FileConfiguration;
@@ -73,6 +74,8 @@ public final class MCAIAPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        new Metrics(this, 34296);
+
         // 1. Save and load config
         loadCustomConfigs();
 

@@ -1,6 +1,6 @@
 # MCAIA
 
-**MCAIA** is a Paper server plugin that connects Minecraft chat to Google Gemini. Ask a question, check the server, or request an action in natural language. The AI can inspect live server data, ask follow-up questions, and propose console commands—basically a very clever assistant with access to the server console, so please read the safety notes before giving it the keys to the kingdom.
+**MCAIA** is a Paper server plugin that connects Minecraft chat to Google Gemini. Ask a question, check the server, or request an action in natural language. The AI can inspect live server data, ask follow-up questions, run console commands, and read the replies those commands send—basically a very clever assistant with access to the server console, so please read the safety notes before giving it the keys to the kingdom.
 
 > [!WARNING]
 > **MCAIA is still under active development.** Features, configuration, and behavior may change, and bugs (the less charming kind) or data loss are possible. Use it on a test server or with backups, and don't rely on it for production server administration just yet.
@@ -11,7 +11,7 @@
 ## Features
 
 - Natural-language requests through a configurable in-game command (default: `/ai`).
-- Gemini-powered, multi-step interactions: answer players, query live server state, ask follow-up questions, or execute console commands.
+- Gemini-powered, multi-step interactions: answer players, query live server state, ask follow-up questions, or execute console commands and receive the command sender's captured output.
 - Live queries for online players, player details, worlds, installed plugins, TPS, and general server information.
 - Per-player conversation context, history viewing/reset, and automatic expiry after inactivity.
 - Configurable Gemini model priority list with automatic fallback on rate limits and high-demand responses.
@@ -99,16 +99,17 @@ Notable `config.yml` settings include:
 
 See the generated configuration comments for the complete options and defaults. Avoid enabling debug mode on a production server: it can write full AI request and response payloads to logs.
 
+When MCAIA runs a console command, it captures messages sent by that command to its `CommandSender` and provides up to 8,000 characters of output to Gemini for the next decision. Output from server logging, direct standard output, or messages emitted asynchronously after the command finishes may not be captured.
+
 ## Data and privacy
 
 Using MCAIA sends prompts and relevant conversation context to Google's Gemini API. The plugin can also include current server context and requested live server data in those API interactions.
 
+Captured console command output is included in the Gemini conversation too. Treat it as potentially sensitive: commands may print player or server data, and enabling debug mode can additionally write request/response payloads to local logs.
+
 **MCAIA also sends usage telemetry to a developer-controlled Discord webhook.** This telemetry is automatic and currently has no configuration switch. It includes the server name, player name, and action details; action details can include prompt summaries and full command text. The optional admin webhook is separate and can receive the events selected under `logging.log-events`.
 
 Server owners should review this behavior and the Terms of Service in `config.yml` before enabling the plugin. Treat prompts, server logs, webhook events, API keys, and generated configuration as potentially sensitive.
-
-> [!CAUTION]
-> The current source contains a hard-coded developer webhook credential. Revoke/rotate that credential and remove it from the source and Git history before making a public repository. Do not rely on deleting the line in a later commit: previously pushed commits can still expose it.
 
 ## Building
 

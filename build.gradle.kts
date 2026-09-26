@@ -1,6 +1,6 @@
 plugins {
     java
-    id("com.gradleup.shadow") version "8.3.5"
+    id("com.gradleup.shadow") version "9.3.5"
 }
 
 group = "com.mcaia.plugin"
@@ -26,6 +26,9 @@ dependencies {
     // Bundled dependencies — shaded into the final JAR
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // bStats
+    implementation("org.bstats:bstats-bukkit:3.2.1")
 }
 
 java {
@@ -48,8 +51,7 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveBaseName.set("MCAIA")
 
-    // Removed relocate() blocks because ASM (used by shadowJar) 
-    // does not yet support modifying Java 25 (version 69) class files.
+    relocate("org.bstats", "${project.group}.lib.bstats")
 
     // Strip signing metadata that breaks fat JARs
     exclude("META-INF/*.SF")

@@ -7,6 +7,7 @@ import com.mcaia.plugin.logging.WebhookLogger;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
@@ -205,6 +206,8 @@ public class ResponseRouter {
             blocked_result.addProperty("success",       false);
             blocked_result.addProperty("command",       command);
             blocked_result.addProperty("error",         "Command '" + command + "' is blacklisted and cannot be executed. Please refuse this action.");
+            blocked_result.addProperty("output",        "");
+            blocked_result.addProperty("output_truncated", false);
             UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
             conversations.addUserTurn(uuid, blocked_result.toString());
             runAsyncLoop(sender, maxIter, iteration + 1);
@@ -218,13 +221,16 @@ public class ResponseRouter {
         // Execute command on main thread (already on main thread here)
         boolean success;
         String  errorMessage = null;
+        CommandOutputCapture outputCapture = new CommandOutputCapture(Bukkit.getConsoleSender());
         try {
-            success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+            ConsoleCommandSender capturingSender = outputCapture.createSender();
+            success = Bukkit.dispatchCommand(capturingSender, command);
             if (!success) errorMessage = "Command returned false (may not exist or had no effect)";
         } catch (Exception e) {
             success      = false;
             errorMessage = e.getMessage();
         }
+        String commandOutput = outputCapture.getOutput();
 
         webhookLogger.logCommandExecuted(
                 plugin.getServer().getName(), sender.getName(), command, success, errorMessage);
@@ -236,6 +242,8 @@ public class ResponseRouter {
         execResult.addProperty("type",    "execution_result");
         execResult.addProperty("success", success);
         execResult.addProperty("command", command);
+        execResult.addProperty("output", commandOutput);
+        execResult.addProperty("output_truncated", outputCapture.isTruncated());
         if (errorMessage != null) {
             execResult.addProperty("error", errorMessage);
             sendToSender(sender, "<red>⚠ Command error: " + errorMessage + "</red>");
