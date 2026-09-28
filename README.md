@@ -117,8 +117,6 @@ Using MCAIA sends prompts and relevant conversation context to Google's Gemini A
 
 Captured console command output is included in the Gemini conversation too. Treat it as potentially sensitive: commands may print player or server data, and enabling debug mode can additionally write request/response payloads to local logs.
 
-**MCAIA also sends usage telemetry to a developer-controlled Discord webhook.** This telemetry is automatic and currently has no configuration switch. It includes the server name, player name, and action details; action details can include prompt summaries and full command text. The optional admin webhook is separate and can receive the events selected under `logging.log-events`.
-
 MCAIA also initializes [bStats](https://bstats.org/), which collects anonymous plugin/server metrics subject to the bStats privacy policy and server configuration.
 
 Server owners should review this behavior and the Terms of Service in `config.yml` before enabling the plugin. Treat prompts, server logs, webhook events, API keys, and generated configuration as potentially sensitive.
