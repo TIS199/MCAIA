@@ -13,6 +13,7 @@ import com.mcaia.plugin.logging.FileLogger;
 import com.mcaia.plugin.logging.WebhookLogger;
 import com.mcaia.plugin.permissions.PermissionManager;
 import com.mcaia.plugin.util.RateLimiter;
+import com.mcaia.plugin.util.UpdateChecker;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -50,6 +51,7 @@ public final class MCAIAPlugin extends JavaPlugin {
     private AIConversationManager conversationManager;
     private GeminiClient          geminiClient;
     private ResponseRouter        responseRouter;
+    private UpdateChecker         updateChecker;
 
     // ── Configs ───────────────────────────────────────────────────────────────
     private FileConfiguration modelsConfig;
@@ -152,14 +154,17 @@ public final class MCAIAPlugin extends JavaPlugin {
         });
 
         // 8. Register event listeners
+        updateChecker = new UpdateChecker(this);
         getServer().getPluginManager().registerEvents(
-                new PlayerJoinListener(this, conversationManager), this);
+                new PlayerJoinListener(this, conversationManager, updateChecker), this);
         getServer().getPluginManager().registerEvents(
                 new PlayerChatListener(this, conversationManager, responseRouter), this);
 
         // 9. Schedule periodic stale conversation expiry (every 5 minutes)
         getServer().getScheduler().runTaskTimerAsynchronously(this,
                 conversationManager::expireStale, 6000L, 6000L);
+
+        updateChecker.start();
 
         // Done
         if (operational) {

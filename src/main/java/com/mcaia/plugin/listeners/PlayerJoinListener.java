@@ -2,6 +2,7 @@ package com.mcaia.plugin.listeners;
 
 import com.mcaia.plugin.MCAIAPlugin;
 import com.mcaia.plugin.ai.AIConversationManager;
+import com.mcaia.plugin.util.UpdateChecker;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -19,10 +20,13 @@ public class PlayerJoinListener implements Listener {
 
     private final MCAIAPlugin           plugin;
     private final AIConversationManager conversations;
+    private final UpdateChecker         updateChecker;
 
-    public PlayerJoinListener(MCAIAPlugin plugin, AIConversationManager conversations) {
+    public PlayerJoinListener(MCAIAPlugin plugin, AIConversationManager conversations,
+                              UpdateChecker updateChecker) {
         this.plugin        = plugin;
         this.conversations = conversations;
+        this.updateChecker = updateChecker;
     }
 
     @EventHandler
@@ -32,6 +36,7 @@ public class PlayerJoinListener implements Listener {
         // Clear any stale conversation state from a previous session
         conversations.clearHistory(player.getUniqueId());
         conversations.clearPendingQuery(player.getUniqueId());
+        updateChecker.notifyIfAvailable(player);
 
         // Send welcome message if enabled
         if (!plugin.getConfig().getBoolean("welcome.enabled", true)) return;

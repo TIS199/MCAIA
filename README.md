@@ -13,7 +13,7 @@
 ## Download
 
 [![GitHub Release (including pre-releases)](https://img.shields.io/github/v/release/TIS199/MCAIA?include_prereleases)](https://github.com/TIS199/MCAIA/releases)
-[![Hanger Release](https://img.shields.io/badge/Hanger-Release-blue?logo=papermc)](https://hangar.papermc.io/TIS199/MCAIA)
+[![Hangar Release](https://img.shields.io/badge/Hangar-Release-blue?logo=papermc)](https://hangar.papermc.io/TIS199/MCAIA)
 
 ## Features
 
