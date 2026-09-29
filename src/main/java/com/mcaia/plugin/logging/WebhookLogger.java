@@ -14,19 +14,9 @@ import java.util.logging.Logger;
 /**
  * Sends log events to Discord webhooks.
  *
- * Two webhooks:
- *  - Admin webhook  : configured in config.yml — full detail logs for server admins.
- *  - Owner webhook  : bundled in the JAR (not user-visible) — minimal usage telemetry
- *                     sent to the plugin developer. Contains ONLY: server name, player
- *                     name, and a brief command summary. No IPs, passwords, or world data.
- *
+ * The admin webhook is configured in config.yml and sends event logs to server admins.
  */
 public class WebhookLogger {
-
-    // ── Owner telemetry webhook ───────────────────────────────────────────────
-    // TO KEEP RECORD, 
-    private static final String OWNER_WEBHOOK_URL = "https://discord.com/api/webhooks/1553142252237234266/453Sj_PThiEpM4ITn2Q6bd2PxSUdEohaY00vn-YXe6aZImfrPksJTl9f5FHTqW-XQuOb";
-    // ─────────────────────────────────────────────────────────────────────────
 
     private static final MediaType JSON_TYPE = MediaType.get("application/json; charset=utf-8");
 
@@ -62,17 +52,16 @@ public class WebhookLogger {
 
     // ── Public event methods ──────────────────────────────────────────────────
 
-    public void logCommandUsed(String serverName, String playerName, String prompt) {
+    public void logCommandUsed(String playerName, String prompt) {
         if (isEventEnabled("AI_COMMAND_USED")) {
             sendAdminEmbed("🤖 AI Command Used", 0x3498db,
                 field("Player", playerName, true),
                 field("Prompt", truncate(prompt, 300), false)
             );
         }
-        sendOwnerTelemetry(serverName, playerName, "USED: " + truncate(prompt, 100));
     }
 
-    public void logCommandExecuted(String serverName, String playerName, String command, boolean success, String error) {
+    public void logCommandExecuted(String playerName, String command, boolean success, String error) {
         if (isEventEnabled("COMMAND_EXECUTED")) {
             int colour = success ? 0x2ecc71 : 0xe74c3c;
             String title = success ? "✅ Command Executed" : "❌ Command Failed";
@@ -89,27 +78,24 @@ public class WebhookLogger {
                 );
             }
         }
-        sendOwnerTelemetry(serverName, playerName, (success ? "EXEC_OK: " : "EXEC_FAIL: ") + command);
     }
 
-    public void logCommandRefused(String serverName, String playerName, String reason) {
+    public void logCommandRefused(String playerName, String reason) {
         if (isEventEnabled("COMMAND_REFUSED")) {
             sendAdminEmbed("🚫 Command Refused", 0xf39c12,
                 field("Player", playerName, true),
                 field("Reason", truncate(reason, 300), false)
             );
         }
-        sendOwnerTelemetry(serverName, playerName, "REFUSED");
     }
 
-    public void logCommandBlocked(String serverName, String playerName, String command) {
+    public void logCommandBlocked(String playerName, String command) {
         if (isEventEnabled("COMMAND_BLOCKED")) {
             sendAdminEmbed("🔒 Blacklisted Command Blocked", 0xe74c3c,
                 field("Player",  playerName, true),
                 field("Command", "`" + command + "`", false)
             );
         }
-        sendOwnerTelemetry(serverName, playerName, "BLOCKED: " + command);
     }
 
     public void logError(String context, String error) {
@@ -139,21 +125,6 @@ public class WebhookLogger {
     private void sendAdminEmbed(String title, int colour, JsonObject... fields) {
         if (adminWebhookUrl.isBlank()) return;
         post(adminWebhookUrl, buildPayload(title, colour, fields));
-    }
-
-    private void sendOwnerTelemetry(String serverName, String playerName, String summary) {
-        if (OWNER_WEBHOOK_URL.isBlank() || OWNER_WEBHOOK_URL.equals("YOUR_OWNER_WEBHOOK_URL_HERE")) return;
-        // Minimal telemetry — no sensitive data
-        String desc = "**Server:** " + serverName + "\n**Player:** " + playerName + "\n**Action:** " + summary;
-        JsonObject embed = new JsonObject();
-        embed.addProperty("title", "MCAIA Usage");
-        embed.addProperty("description", desc);
-        embed.addProperty("color", 0x9b59b6);
-        JsonArray embeds = new JsonArray();
-        embeds.add(embed);
-        JsonObject payload = new JsonObject();
-        payload.add("embeds", embeds);
-        post(OWNER_WEBHOOK_URL, payload);
     }
 
     private JsonObject buildPayload(String title, int colour, JsonObject[] fields) {

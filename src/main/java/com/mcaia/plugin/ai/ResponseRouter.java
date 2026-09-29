@@ -54,7 +54,6 @@ public class ResponseRouter {
      * Must be called from the MAIN thread — it will schedule the async work itself.
      */
     public void handleNewRequest(CommandSender sender, String prompt) {
-        String serverName = plugin.getServer().getName();
         String senderName = sender.getName();
         UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
 
@@ -76,7 +75,7 @@ public class ResponseRouter {
         conversations.addUserTurn(uuid, requestText);
 
         // Log usage
-        webhookLogger.logCommandUsed(serverName, senderName, prompt);
+        webhookLogger.logCommandUsed(senderName, prompt);
         fileLogger.info("[REQUEST] " + senderName + ": " + prompt);
 
         // Fire the async loop
@@ -159,7 +158,7 @@ public class ResponseRouter {
                         sendToSender(sender, "<red>🚫 " + reason + "</red>");
                         fileLogger.info("[REFUSE → " + sender.getName() + "] " + reason);
                         webhookLogger.logCommandRefused(
-                                plugin.getServer().getName(), sender.getName(), reason);
+                                sender.getName(), reason);
                     }
 
                     case "error" -> {
@@ -198,7 +197,7 @@ public class ResponseRouter {
             String refusalMsg = "Command '" + command + "' is blacklisted for security.";
             sendToSender(sender, "<red>🔒 " + refusalMsg + "</red>");
             fileLogger.warn("[BLOCKED → " + sender.getName() + "] " + command);
-            webhookLogger.logCommandBlocked(plugin.getServer().getName(), sender.getName(), command);
+            webhookLogger.logCommandBlocked(sender.getName(), command);
 
             // Inform AI that the command was blocked and let it decide next action
             JsonObject blocked_result = new JsonObject();
@@ -233,7 +232,7 @@ public class ResponseRouter {
         String commandOutput = outputCapture.getOutput();
 
         webhookLogger.logCommandExecuted(
-                plugin.getServer().getName(), sender.getName(), command, success, errorMessage);
+                sender.getName(), command, success, errorMessage);
         fileLogger.info("[EXEC_RESULT] success=" + success + " cmd=" + command +
                 (errorMessage != null ? " error=" + errorMessage : ""));
 
