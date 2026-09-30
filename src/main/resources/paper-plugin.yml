@@ -1,5 +1,5 @@
 name: MCAIA
-version: '1.1.0'
+version: '1.2.0'
 main: com.mcaia.plugin.MCAIAPlugin
 api-version: '1.21'
 description: Minecraft AI Admin — AI-powered server management plugin
@@ -29,8 +29,12 @@ dependencies:
 
 permissions:
   mcaia.use:
-    description: Allows the player to use the /ai command
+    description: Allows full console-level AI command access
     default: op
+
+  mcaia.player:
+    description: Allows player-scoped AI command access when enabled in config
+    default: false
 
   mcaia.admin:
     description: Allows access to /aiadmin commands
@@ -53,6 +57,7 @@ permissions:
     default: false
     children:
       mcaia.use: true
+      mcaia.player: true
       mcaia.admin: true
       mcaia.reload: true
       mcaia.bypass-rate-limit: true

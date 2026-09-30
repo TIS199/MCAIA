@@ -64,6 +64,10 @@ public class AICommand implements BasicCommand {
             send(sender, "<gray>Server owner: Set <white>tos-accepted: true</white> in plugins/MCAIA/config.yml and restart.</gray>");
             return;
         }
+        if (!plugin.isOperational()) {
+            send(sender, "<red>⚠ MCAIA is not operational. Configure at least one AI provider API key.</red>");
+            return;
+        }
 
         // ── Bedrock player check ──────────────────────────────────────────────
         if (sender instanceof Player player && compat.isBedrockPlayer(player)) {
@@ -75,7 +79,7 @@ public class AICommand implements BasicCommand {
         }
 
         // ── Permission check ──────────────────────────────────────────────────
-        if (sender instanceof Player player && !permissions.hasPermission(player, "mcaia.use")) {
+        if (sender instanceof Player player && !canUseAi(player)) {
             send(player, "<red>You do not have permission to use this command.</red>");
             return;
         }
@@ -175,6 +179,12 @@ public class AICommand implements BasicCommand {
         }
     }
 
+    private boolean canUseAi(Player player) {
+        if (permissions.hasPermission(player, "mcaia.use")) return true;
+        return plugin.getConfig().getBoolean("permissions.player-command-mode.enabled", false)
+                && permissions.hasPermission(player, "mcaia.player");
+    }
+
     private void send(CommandSender sender, String msg) {
         String prefix = plugin.getConfig().getString("prefix",
                 "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
@@ -188,7 +198,7 @@ public class AICommand implements BasicCommand {
     @Override
     public Collection<String> suggest(CommandSourceStack stack, String[] args) {
         CommandSender sender = stack.getSender();
-        if (sender instanceof Player player && !permissions.hasPermission(player, "mcaia.use")) return List.of();
+        if (sender instanceof Player player && !canUseAi(player)) return List.of();
         if (args.length <= 1) {
             String cur = args.length == 0 ? "" : args[0].toLowerCase();
             return List.of("help", "history", "reset").stream()
@@ -200,13 +210,13 @@ public class AICommand implements BasicCommand {
     @Override
     public boolean canUse(CommandSender sender) {
         if (sender instanceof Player player) {
-            return permissions.hasPermission(player, "mcaia.use");
+            return canUseAi(player);
         }
         return true; // Console is always allowed
     }
 
     @Override
     public String permission() {
-        return "mcaia.use";
+        return null;
     }
 }

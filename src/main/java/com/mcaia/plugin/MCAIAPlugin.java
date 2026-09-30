@@ -1,7 +1,7 @@
 package com.mcaia.plugin;
 
 import com.mcaia.plugin.ai.AIConversationManager;
-import com.mcaia.plugin.ai.GeminiClient;
+import com.mcaia.plugin.ai.LlmClient;
 import com.mcaia.plugin.ai.ResponseRouter;
 import com.mcaia.plugin.ai.ServerDataProvider;
 import com.mcaia.plugin.commands.AIAdminCommand;
@@ -21,6 +21,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -34,7 +36,7 @@ import java.util.List;
  *   2. PluginCompat (detect soft-deps)
  *   3. FileLogger, WebhookLogger
  *   4. PermissionManager, RateLimiter
- *   5. AIConversationManager, ServerDataProvider, GeminiClient, ResponseRouter
+ *   5. AIConversationManager, ServerDataProvider, LlmClient, ResponseRouter
  *   6. Register commands (/ai + /aiadmin) via LifecycleEvents
  *   7. Register event listeners
  *
@@ -49,7 +51,7 @@ public final class MCAIAPlugin extends JavaPlugin {
     private PermissionManager     permissionManager;
     private RateLimiter           rateLimiter;
     private AIConversationManager conversationManager;
-    private GeminiClient          geminiClient;
+    private LlmClient             llmClient;
     private ResponseRouter        responseRouter;
     private UpdateChecker         updateChecker;
 
@@ -68,6 +70,14 @@ public final class MCAIAPlugin extends JavaPlugin {
         File modelsFile = new File(getDataFolder(), "models.yml");
         if (!modelsFile.exists()) saveResource("models.yml", false);
         modelsConfig = YamlConfiguration.loadConfiguration(modelsFile);
+        try (var defaultsStream = getResource("models.yml")) {
+            if (defaultsStream != null) {
+                modelsConfig.addDefaults(YamlConfiguration.loadConfiguration(
+                        new InputStreamReader(defaultsStream, StandardCharsets.UTF_8)));
+            }
+        } catch (java.io.IOException e) {
+            getLogger().severe("[MCAIA] Could not load bundled model defaults: " + e.getMessage());
+        }
 
         File bannedFile = new File(getDataFolder(), "banned-commands.yml");
         if (!bannedFile.exists()) saveResource("banned-commands.yml", false);
@@ -92,8 +102,6 @@ public final class MCAIAPlugin extends JavaPlugin {
             // Don't disable the plugin entirely (so /aiadmin status still works),
             // but mark it non-operational so /ai commands are blocked.
             operational = false;
-        } else {
-            operational = true;
         }
 
         // 3. Detect optional plugin integrations
@@ -118,13 +126,17 @@ public final class MCAIAPlugin extends JavaPlugin {
         int maxHistory = getConfig().getInt("ai.max-history-length", 10);
         conversationManager = new AIConversationManager(maxHistory);
 
-        geminiClient = new GeminiClient(this, fileLogger);
-        geminiClient.initialize();
+        llmClient = new LlmClient(this, fileLogger);
+        llmClient.initialize();
+        if (getConfig().getBoolean("tos-accepted", false) && !llmClient.hasConfiguredProvider()) {
+            getLogger().severe("[MCAIA] No usable AI provider configured. Add an API key and model list for a provider.");
+        }
+        operational = getConfig().getBoolean("tos-accepted", false) && llmClient.hasConfiguredProvider();
 
         ServerDataProvider dataProvider = new ServerDataProvider();
 
         responseRouter = new ResponseRouter(
-                this, geminiClient, conversationManager, dataProvider, fileLogger, webhookLogger);
+                this, llmClient, conversationManager, dataProvider, fileLogger, webhookLogger);
 
         // 7. Register commands via Paper's LifecycleEvents API
         String cmdName = getConfig().getString("command-name", "ai");
@@ -170,9 +182,9 @@ public final class MCAIAPlugin extends JavaPlugin {
         if (operational) {
             getLogger().info("MCAIA enabled. AI command: /" + finalCmdName);
             fileLogger.info("Plugin enabled. AI command: /" + finalCmdName +
-                    " | Model: " + getConfig().getString("ai.model", "?"));
+                    " | Providers: " + String.join(", ", llmClient.getConfiguredProviders()));
         } else {
-            getLogger().warning("MCAIA loaded but is non-operational (TOS not accepted).");
+            getLogger().warning("MCAIA loaded but is non-operational (accept the TOS and configure at least one AI provider).");
         }
     }
 
@@ -191,10 +203,14 @@ public final class MCAIAPlugin extends JavaPlugin {
         if (fileLogger    != null) fileLogger.initialize();
         if (webhookLogger != null) webhookLogger.reload();
         if (permissionManager != null) permissionManager.reload();
-        if (geminiClient  != null) geminiClient.reload();
+        if (llmClient != null) llmClient.reload();
 
-        // Re-check TOS and API key
-        operational = getConfig().getBoolean("tos-accepted", false);
+        operational = getConfig().getBoolean("tos-accepted", false)
+                && llmClient != null && llmClient.hasConfiguredProvider();
+        if (getConfig().getBoolean("tos-accepted", false) && llmClient != null
+                && !llmClient.hasConfiguredProvider()) {
+            getLogger().severe("[MCAIA] No usable AI provider configured. Add an API key and model list for a provider.");
+        }
         getLogger().info("Configuration reloaded. Operational: " + operational);
     }
 
@@ -205,6 +221,7 @@ public final class MCAIAPlugin extends JavaPlugin {
     public WebhookLogger     getWebhookLogger()     { return webhookLogger;      }
     public PermissionManager getPermissionManager() { return permissionManager;  }
     public RateLimiter       getRateLimiter()       { return rateLimiter;        }
+    public LlmClient         getLlmClient()         { return llmClient;          }
     public boolean           isOperational()        { return operational;        }
 
     public FileConfiguration getModelsConfig()      { return modelsConfig;       }

@@ -71,12 +71,17 @@ public class PermissionManager {
      */
     public boolean hasPermission(Player player, String permNode) {
         return switch (activeBackend) {
-            case LUCKPERMS, VAULT -> player.hasPermission(permNode);
-            case FALLBACK         -> fallbackCheck(player, permNode);
+            case LUCKPERMS -> player.hasPermission(permNode);
+            case VAULT -> vaultPerms != null ? vaultPerms.playerHas(player, permNode) : player.hasPermission(permNode);
+            case FALLBACK -> fallbackCheck(player, permNode);
         };
     }
 
     private boolean fallbackCheck(Player player, String permNode) {
+        // Player-scoped AI access must be explicitly granted, even to operators.
+        if ("mcaia.player".equals(permNode)) {
+            return player.hasPermission(permNode);
+        }
         // mcaia.bypass-rate-limit and mcaia.admin always require OP in fallback
         if (player.isOp()) return true;
         // For basic use permission, also check the permitted-players list

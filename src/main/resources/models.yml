@@ -1,21 +1,54 @@
-# ================================================================
-#   GEMINI MODELS LIST
-# ================================================================
-# List of Gemini models the plugin will use, in order of priority.
-# The plugin will always try the top model first.
-# If a rate limit (429) or high demand (503) error occurs, and
-# smart-switching is enabled in config.yml, it will automatically
-# fallback to the next model in this list.
+provider-order:
+  - gemini
+  - groq
+  - openrouter
+  - openai
+  - anthropic
+  - grok
 
-models:
-  - "gemini-3.8-flash"
-  - "gemini-3.7-flash"
-  - "gemini-3.6-flash"
-  - "gemini-3.5-flash"
-  - "gemini-3.5-flash-lite"
-  - "gemini-3.1-flash-lite"
-  - "gemini-3.0-flash"
-  - "gemini-2.5-flash"
-  - "gemini-2.5-flash-lite"
-  - "gemini-2.0-flash"
-  - "gemini-2.0-flash-lite"
+gemini:
+  models:
+    - gemini-3.8-flash
+    - gemini-3.7-flash
+    - gemini-3.6-flash
+    - gemini-3.5-flash
+    - gemini-3.5-flash-lite
+    - gemini-3.1-flash-lite
+    - gemini-2.5-flash
+
+groq:
+  models:
+    - llama-3.3-70b-versatile
+    - llama-3.1-8b-instant
+    - openai/gpt-oss-120b
+    - openai/gpt-oss-20b
+    - qwen/qwen3.8-27b
+
+openrouter:
+  models:
+    - meta-llama/llama-3.3-70b-instruct:free
+    - deepseek/deepseek-r1:free
+    - deepseek/deepseek-chat:free
+    - openai/gpt-oss-120b:free
+    - google/gemma-4-31b-it:free
+    - google/gemma-4-26b-a4b-it:free
+    - nvidia/nemotron-3-super-120b-a12b:free
+    - qwen/qwen3-coder:free
+    - qwen/qwen3.8-27b:free
+    - dots-studio/dots-3-note-preview:free
+    - openai/gpt-oss-20b:free
+    - google/gemma-2-9b-it:free
+    - liquid/lfm-2.5-2.6b:free
+
+openai:
+  models:
+    - gpt-4o-mini
+    - gpt-4.1-mini
+
+anthropic:
+  models:
+    - claude-sonnet-4-5
+
+grok:
+  models:
+    - grok-4

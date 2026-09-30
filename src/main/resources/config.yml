@@ -1,7 +1,7 @@
 # ================================================================
 #   MCAIA — Minecraft AI Admin Plugin
 #   By TIS199  |  github.com/TIS199
-#   Plugin Version: 1.1.0
+#   Plugin Version: 1.2.0
 # ================================================================
 
 # ⚠️  TERMS OF SERVICE  ⚠️
@@ -10,9 +10,7 @@
 #   1. You are fully responsible for all AI-issued commands on your server.
 #   2. The developer (TIS199) is NOT liable for any damage, data loss, or
 #      player harm caused by this plugin.
-#   3. Anonymous usage telemetry (server name, username, command summary)
-#      is sent to the developer for plugin improvement.
-#   4. You will not use this plugin to violate Mojang's EULA, harm players,
+#   3. You will not use this plugin to violate Mojang's EULA, harm players,
 #      or break any applicable laws.
 tos-accepted: false
 
@@ -28,8 +26,22 @@ command-name: "ai"
 #   AI SETTINGS
 # ================================================================
 ai:
-  # Your Google Gemini API key — get one at: https://aistudio.google.com/apikey
-  gemini-api-key: "YOUR_GEMINI_API_KEY_HERE"
+  # Configure at least one provider API key below.
+  providers:
+    gemini:
+      api-key: ""
+    groq:
+      api-key: ""
+    openai:
+      api-key: ""
+    anthropic:
+      api-key: ""
+    grok:
+      api-key: ""
+    openrouter:
+      api-key: ""
+      site-url: ""
+      app-name: "MCAIA"
 
   # Maximum tokens (words) in the AI's response
   max-tokens: 2048
@@ -50,9 +62,9 @@ ai:
   # Automatically switch to the next model in models.yml if the current one
   # returns a rate limit (429) or high demand (503) error.
   smart-switching: true
-  
-  # Set to "free" or "paid". Used to help format rate limits properly.
-  google-ai-subscription: "free"
+
+  # Delay in server ticks to wait for command output that arrives asynchronously.
+  command-output-wait-ticks: 30
 
 # ================================================================
 #   PERMISSIONS
@@ -70,6 +82,11 @@ permissions:
   permitted-players:
     # - "Steve"
     # - "Alex"
+
+  # Allow holders of mcaia.player to use /ai with their own command permissions.
+  # This mode is disabled by default. mcaia.use continues to grant admin AI access.
+  player-command-mode:
+    enabled: false
 
 # ================================================================
 #   RATE LIMITING

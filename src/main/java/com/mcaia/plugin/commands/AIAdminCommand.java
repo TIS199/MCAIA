@@ -99,20 +99,23 @@ public class AIAdminCommand implements BasicCommand {
     }
 
     private void sendStatus(CommandSender sender) {
-        String model    = plugin.getConfig().getString("ai.model", "?");
-        String apiKey   = plugin.getConfig().getString("ai.gemini-api-key", "");
-        boolean keyOk   = apiKey != null && !apiKey.isBlank() && !apiKey.equals("YOUR_GEMINI_API_KEY_HERE");
         boolean tosOk   = plugin.getConfig().getBoolean("tos-accepted", false);
         boolean debug   = plugin.getConfig().getBoolean("logging.debug-mode", false);
         String permBack = plugin.getPermissionManager() != null
                 ? plugin.getPermissionManager().getActiveBackend().name() : "UNKNOWN";
         String cmdName  = plugin.getConfig().getString("command-name", "ai");
+        var llm = plugin.getLlmClient();
+        String providers = llm == null || llm.getConfiguredProviders().isEmpty()
+                ? "None" : String.join(", ", llm.getConfiguredProviders());
+        String active = llm == null || llm.getActiveProvider().isBlank()
+                ? "Not selected yet" : llm.getActiveProvider() + " / " + llm.getActiveModel();
 
         send(sender, "<gold><b>=== MCAIA Status ===</b></gold>");
         send(sender, "<gray>Version:     </gray><white>" + plugin.getPluginMeta().getVersion() + "</white>");
         send(sender, "<gray>TOS Accepted:</gray> " + (tosOk ? "<green>Yes</green>" : "<red>No — plugin disabled!</red>"));
-        send(sender, "<gray>API Key:     </gray> " + (keyOk ? "<green>Configured</green>" : "<red>MISSING</red>"));
-        send(sender, "<gray>Model:       </gray><white>" + model + "</white>");
+        send(sender, "<gray>Providers:   </gray><white>" + providers + "</white>");
+        send(sender, "<gray>Active model:</gray><white>" + active + "</white>");
+        send(sender, "<gray>Operational: </gray>" + (plugin.isOperational() ? "<green>Yes</green>" : "<red>No</red>"));
         send(sender, "<gray>Command:     </gray><white>/" + cmdName + "</white>");
         send(sender, "<gray>Perm Backend:</gray><white>" + permBack + "</white>");
         send(sender, "<gray>Debug Mode:  </gray>" + (debug ? "<yellow>ON</yellow>" : "<green>OFF</green>"));

@@ -6,11 +6,12 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Stores per-player conversation history for the Gemini API, and manages
+ * Stores per-player conversation history for the configured LLM provider, and manages
  * pending player queries (when the AI asks the player a follow-up question).
  *
  * History is stored as a list of role/parts pairs compatible with the
- * Gemini generateContent API (role = "user" | "model").
+ * Gemini generateContent API (role = "user" | "model"); provider adapters map
+ * these roles to their own conversation formats.
  */
 public class AIConversationManager {
 
