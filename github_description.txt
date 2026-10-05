@@ -1,0 +1,54 @@
+MCAIA — AI-Powered Minecraft Server Administration
+
+MCAIA is a PaperMC plugin that lets server owners and players use natural-language requests to manage a Minecraft server without memorizing commands. Ask questions like "How many players are online?", "Show me the TPS", or "Give all players a speed boost" and the plugin will interpret the request, check live server data, and perform safe actions with configurable safeguards.
+
+Ideal for beginner server owners, admins, and communities that want a smarter and easier way to manage their server.
+
+Features:
+- Natural-language AI assistant via /ai
+- Live server queries for players, worlds, TPS, plugins, and general server information
+- Multi-provider AI support: Gemini, Groq, OpenAI, Anthropic Claude, xAI Grok, OpenRouter
+- Smart fallback between providers when one fails or is rate limited
+- Per-player conversation history with automatic expiry
+- Permission-aware command execution with safe command filtering
+- Built-in command protection against dangerous or nested commands
+- Optional support for Geyser/Floodgate Bedrock players
+- Admin tools for status, reload, history cleanup, and debug logs
+- Optional Discord webhook logging and daily file logs
+- Works with LuckPerms, Vault, and common admin setups
+
+Why server owners love it:
+- Beginner-friendly: you can ask in plain English instead of memorizing commands
+- Saves time: inspect the server, answer questions, and execute admin tasks faster
+- Safer than raw console access: MCAIA includes command blocking and permission checks
+- Flexible: works with multiple AI providers and can be tuned for your server
+
+Requirements:
+- PaperMC 26.2 or 26.3
+- Java 25
+- At least one AI provider API key
+
+How to use:
+1. Install the plugin in your Paper server's plugins folder
+2. Accept the TOS in config.yml
+3. Add your AI provider API key
+4. Restart your server and use /ai <your request>
+
+Example commands:
+- /ai How many players are online?
+- /ai What's our current TPS?
+- /ai List the installed plugins
+- /ai Show me info about Notch
+- /ai Restart the server in 2 minutes
+- /ai Give all players Speed II for 5 minutes
+
+Security:
+MCAIA is designed to be useful without being reckless. The plugin includes command blocking, nested-command detection, permission checks, and cooldown controls to reduce misuse. Server owners should still review settings carefully before enabling AI command execution on production servers.
+
+Discord:
+https://discord.gg/BV2AqsbRvh
+
+Repository:
+https://github.com/TIS199/MCAIA
+
+Made for Minecraft server owners who want powerful AI assistance without needing to become command experts.
