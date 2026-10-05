@@ -385,7 +385,3 @@ MCAIA is licensed under **GNU GPL v3 only (`GPL-3.0-only`)**.
 See [LICENSE](./LICENSE) for the full license text.
 
 ---
-
-<p align="center">
-  <b>MCAIA — because knowing what you want to do should be enough.</b>
-</p>
