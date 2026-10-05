@@ -1,0 +1,21 @@
+MCAIA is a smart, beginner-friendly AI administration plugin for Paper-based Minecraft servers. Instead of memorizing commands, players and admins can ask the plugin questions and request actions in plain English.
+
+Whether you are a new server owner, a community manager, or an experienced admin, MCAIA helps reduce the stress of server management by making common tasks easy and fast.
+
+Features include:
+- Simple /ai command interface
+- Natural-language server queries and admin actions
+- Real-time player, world, plugin, and TPS information
+- Multi-AI provider support with automatic fallback handling
+- Player-specific chat history and conversation context
+- Configurable command protections and permission controls
+- Safe execution model for admin commands
+- Optional Geyser/Floodgate compatibility
+- Discord webhook and file logging support
+
+Built with safety and usability in mind, MCAIA helps server owners manage their community with less complexity while still keeping control over what the AI is allowed to do.
+
+This plugin is ideal for anyone who wants an AI-powered helper to improve server administration without needing deep technical knowledge.
+
+Discord: https://discord.gg/BV2AqsbRvh
+GitHub: https://github.com/TIS199/MCAIA
