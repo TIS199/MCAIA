@@ -1,0 +1,25 @@
+MCAIA is a beginner-friendly AI assistant for PaperMC servers.
+
+Ask a question in plain English and let MCAIA inspect live server data, answer player questions, and even execute safe admin actions. It is designed for server owners who want powerful automation without having to memorize complicated commands.
+
+Whether you are a new admin, a small community owner, or a larger modded server operator, MCAIA helps you manage your server faster and with less stress.
+
+Main features:
+- Natural-language AI commands using /ai
+- Query online players, worlds, TPS, plugins, and server state
+- Multi-provider AI support with fallback between providers
+- Conversation history for each player
+- Safe command execution with permission checks and blocking of dangerous commands
+- Works with LuckPerms, Vault, and optional Geyser/Floodgate support
+- Admin tools for status, reload, history cleanup, and debug mode
+- Optional logging and Discord webhook notifications
+
+Perfect for:
+- Beginners who want a smarter server assistant
+- Server owners who need faster admin help
+- Communities wanting a safer AI-powered admin tool
+
+Built for PaperMC and designed to make server administration easier, safer, and more accessible.
+
+Discord: https://discord.gg/BV2AqsbRvh
+GitHub: https://github.com/TIS199/MCAIA
