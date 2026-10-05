@@ -1,0 +1,25 @@
+MCAIA is an AI-powered plugin for Paper servers that helps you manage your server using natural language instead of complicated command syntax.
+
+Ask the plugin things like:
+- "How many players are online?"
+- "What is the current TPS?"
+- "Tell me about this player"
+- "Give all players Speed II for 5 minutes"
+- "List installed plugins"
+
+This plugin is especially useful for beginner server owners who want a simpler way to manage a Minecraft server without constantly memorizing commands or relying on external tools.
+
+Features:
+- AI-powered chat command system
+- Live server inspection and reporting
+- Natural-language admin actions
+- Multi-provider AI support with fallback
+- Permission-aware command handling
+- Safe command filtering and game-safe restrictions
+- Conversation history and player-specific context
+- Optional Bedrock support and compatibility with common plugins
+
+MCAIA is made to feel like having a smart server assistant in your chat, reducing the complexity of server management while keeping the process more controlled and secure.
+
+Discord: https://discord.gg/BV2AqsbRvh
+GitHub: https://github.com/TIS199/MCAIA
