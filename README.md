@@ -361,7 +361,7 @@ Optional integrations:
 
 Need help, found a bug, or have an idea?
 
-**Discord:** https://discord.gg/BV2AqsbRvh  
+**Discord:** https://discord.gg/C4anUJdynJ
 **GitHub:** https://github.com/TIS199/MCAIA
 
 For bug reports, include your MCAIA version, Paper version, relevant server logs, and the exact request that caused the problem. Remove API keys, webhook URLs, and private player data before posting logs.
