@@ -72,6 +72,11 @@ public class PluginCompat {
         return name;
     }
 
+    /** Returns the configured display name for a player. */
+    public String getCleanName(Player player) {
+        return getCleanName(player, plugin.getConfig().getBoolean("geyser.strip-bedrock-prefix", true));
+    }
+
     private boolean isPluginLoaded(String name) {
         Plugin p = plugin.getServer().getPluginManager().getPlugin(name);
         return p != null && p.isEnabled();

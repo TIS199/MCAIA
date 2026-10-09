@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import com.mcaia.plugin.permissions.PermissionManager;
 
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 
 final class PlayerCommandAccess {
@@ -15,9 +16,16 @@ final class PlayerCommandAccess {
     private PlayerCommandAccess() {
     }
 
-    static List<String> allowedCommands(Player player, PermissionManager permissions) {
+    static List<Map.Entry<String, Command>> commandSnapshot() {
+        return Bukkit.getCommandMap().getKnownCommands().entrySet().stream()
+                .map(entry -> Map.entry(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    static List<String> allowedCommands(Player player, PermissionManager permissions,
+                                        List<Map.Entry<String, Command>> commands) {
         TreeSet<String> allowed = new TreeSet<>();
-        for (var entry : Bukkit.getCommandMap().getKnownCommands().entrySet()) {
+        for (var entry : commands) {
             Command command = entry.getValue();
             String permission = command.getPermission();
             boolean permitted = command.testPermissionSilent(player);

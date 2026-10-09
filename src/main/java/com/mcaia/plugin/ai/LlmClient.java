@@ -22,7 +22,7 @@ public final class LlmClient {
     private static final String GROK_API = "https://api.x.ai/v1/chat/completions";
     private static final String OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
     private static final String ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-    private static final List<String> PROVIDERS = List.of("gemini", "groq", "openrouter", "openai", "anthropic", "grok");
+    private static final List<String> PROVIDERS = List.of("gemini", "groq", "openrouter", "openai", "anthropic", "grok", "ollama");
     private static final int MAX_OUTPUT_LENGTH = 8_000;
 
     private final MCAIAPlugin plugin;
@@ -33,6 +33,8 @@ public final class LlmClient {
     private final Map<String, String> apiKeys = new HashMap<>();
     private final Map<String, List<String>> models = new HashMap<>();
     private final Map<String, String> optionalHeaders = new HashMap<>();
+    private boolean ollamaEnabled;
+    private String ollamaBaseUrl;
     private List<String> providerOrder = List.of();
     private int maxTokens;
     private double temperature;
@@ -46,7 +48,7 @@ public final class LlmClient {
         this.fileLogger = fileLogger;
         this.http = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(180, TimeUnit.SECONDS)
                 .writeTimeout(15, TimeUnit.SECONDS)
                 .build();
     }
@@ -57,6 +59,7 @@ public final class LlmClient {
         optionalHeaders.clear();
 
         for (String provider : PROVIDERS) {
+            if ("ollama".equals(provider)) continue;
             String key = plugin.getConfig().getString("ai.providers." + provider + ".api-key", "");
             if (!isMissingKey(key)) {
                 apiKeys.put(provider, key.trim());
@@ -76,12 +79,27 @@ public final class LlmClient {
             }
         }
 
+        ollamaEnabled = plugin.getConfig().getBoolean("ai.providers.ollama.enabled", false);
+        ollamaBaseUrl = plugin.getConfig().getString("ai.providers.ollama.base-url", "http://127.0.0.1:11434");
+        String ollamaModel = plugin.getConfig().getString("ai.providers.ollama.model", "");
+        if (ollamaEnabled && ollamaModel != null && !ollamaModel.isBlank()) {
+            models.put("ollama", List.of(ollamaModel.trim()));
+        } else {
+            models.remove("ollama");
+        }
+
         String siteUrl = plugin.getConfig().getString("ai.providers.openrouter.site-url", "");
         String appName = plugin.getConfig().getString("ai.providers.openrouter.app-name", "MCAIA");
         if (siteUrl != null && !siteUrl.isBlank()) optionalHeaders.put("HTTP-Referer", siteUrl);
         if (appName != null && !appName.isBlank()) optionalHeaders.put("X-Title", appName);
 
-        List<String> configuredOrder = plugin.getModelsConfig().getStringList("provider-order").stream()
+        List<String> configuredOrder = plugin.getConfig().getStringList("ai.provider-order").stream()
+                .filter(Objects::nonNull)
+                .map(provider -> provider.toLowerCase(Locale.ROOT))
+                .filter(PROVIDERS::contains)
+                .distinct()
+                .toList();
+        if (configuredOrder.isEmpty()) configuredOrder = plugin.getModelsConfig().getStringList("provider-order").stream()
                 .filter(Objects::nonNull)
                 .map(provider -> provider.toLowerCase(Locale.ROOT))
                 .filter(PROVIDERS::contains)
@@ -104,12 +122,16 @@ public final class LlmClient {
     }
 
     public boolean hasConfiguredProvider() {
-        return providerOrder.stream().anyMatch(provider -> apiKeys.containsKey(provider)
-                && models.containsKey(provider));
+        return providerOrder.stream().anyMatch(this::isConfigured);
     }
 
     public List<String> getConfiguredProviders() {
-        return providerOrder.stream().filter(apiKeys::containsKey).toList();
+        return providerOrder.stream().filter(this::isConfigured).toList();
+    }
+
+    private boolean isConfigured(String provider) {
+        if (!models.containsKey(provider)) return false;
+        return "ollama".equals(provider) ? ollamaEnabled : apiKeys.containsKey(provider);
     }
 
     public String getActiveProvider() {
@@ -123,7 +145,7 @@ public final class LlmClient {
     public JsonObject sendMessage(UUID uuid, List<AIConversationManager.Turn> history, String runtimeContext) {
         List<String> available = getConfiguredProviders();
         if (available.isEmpty()) {
-            return errorObject("No AI provider API key is configured. Add at least one key under ai.providers in config.yml.");
+            return errorObject("No AI provider is configured. Set a hosted provider API key or configure an Ollama model.");
         }
 
         boolean debug = plugin.getConfig().getBoolean("logging.debug-mode", false);
@@ -202,6 +224,7 @@ public final class LlmClient {
         JsonObject body = switch (provider) {
             case "gemini" -> buildGeminiBody(history, systemInstruction);
             case "anthropic" -> buildAnthropicBody(model, history, systemInstruction);
+            case "ollama" -> buildOllamaBody(model, history, systemInstruction);
             default -> buildOpenAiBody(model, history, systemInstruction);
         };
         String json = gson.toJson(body);
@@ -211,6 +234,15 @@ public final class LlmClient {
             case "gemini" -> {
                 HttpUrl baseUrl = HttpUrl.get(GEMINI_API + model + ":generateContent");
                 HttpUrl url = baseUrl.newBuilder().addQueryParameter("key", apiKeys.get(provider)).build();
+                builder = new Request.Builder().url(url).post(RequestBody.create(json, JSON_TYPE))
+                        .addHeader("Content-Type", "application/json");
+            }
+            case "ollama" -> {
+                String base = ollamaBaseUrl == null || ollamaBaseUrl.isBlank()
+                        ? "http://127.0.0.1:11434" : ollamaBaseUrl.trim();
+                if (!base.endsWith("/")) base += "/";
+                HttpUrl baseUrl = HttpUrl.get(base);
+                HttpUrl url = baseUrl.newBuilder().addPathSegment("api").addPathSegment("chat").build();
                 builder = new Request.Builder().url(url).post(RequestBody.create(json, JSON_TYPE))
                         .addHeader("Content-Type", "application/json");
             }
@@ -299,6 +331,25 @@ public final class LlmClient {
         return body;
     }
 
+    private JsonObject buildOllamaBody(String model, List<AIConversationManager.Turn> history,
+                                       String systemInstruction) {
+        JsonObject body = new JsonObject();
+        body.addProperty("model", model);
+        body.addProperty("stream", false);
+        body.addProperty("format", "json");
+        JsonArray messages = new JsonArray();
+        messages.add(chatMessage("system", systemInstruction));
+        for (AIConversationManager.Turn turn : history) {
+            messages.add(chatMessage(turn.role().equals("model") ? "assistant" : "user", turn.text()));
+        }
+        body.add("messages", messages);
+        JsonObject options = new JsonObject();
+        options.addProperty("temperature", temperature);
+        options.addProperty("num_predict", maxTokens);
+        body.add("options", options);
+        return body;
+    }
+
     private JsonObject chatMessage(String role, String content) {
         JsonObject message = new JsonObject();
         message.addProperty("role", role);
@@ -309,9 +360,18 @@ public final class LlmClient {
     private String extractText(String provider, JsonObject response) {
         try {
             if ("gemini".equals(provider)) {
-                return response.getAsJsonArray("candidates").get(0).getAsJsonObject()
-                        .getAsJsonObject("content").getAsJsonArray("parts").get(0).getAsJsonObject()
-                        .get("text").getAsString().strip();
+                JsonArray parts = response.getAsJsonArray("candidates").get(0).getAsJsonObject()
+                        .getAsJsonObject("content").getAsJsonArray("parts");
+                StringBuilder text = new StringBuilder();
+                for (JsonElement element : parts) {
+                    if (!element.isJsonObject()) continue;
+                    JsonObject part = element.getAsJsonObject();
+                    if (part.has("thought") && part.get("thought").getAsBoolean()) continue;
+                    if (part.has("text") && part.get("text").isJsonPrimitive()) {
+                        text.append(part.get("text").getAsString());
+                    }
+                }
+                return text.toString().strip();
             }
             if ("anthropic".equals(provider)) {
                 JsonArray content = response.getAsJsonArray("content");
@@ -322,6 +382,9 @@ public final class LlmClient {
                     }
                 }
                 return null;
+            }
+            if ("ollama".equals(provider)) {
+                return response.getAsJsonObject("message").get("content").getAsString().strip();
             }
             JsonElement content = response.getAsJsonArray("choices").get(0).getAsJsonObject()
                     .getAsJsonObject("message").get("content");
@@ -341,7 +404,7 @@ public final class LlmClient {
     }
 
     private boolean isRetryable(int status) {
-        return status == 408 || status == 429 || status == 498 || status == 500 || status == 502
+        return status == 404 || status == 408 || status == 429 || status == 498 || status == 500 || status == 502
                 || status == 503 || status == 504 || status == 529;
     }
 
@@ -383,9 +446,11 @@ public final class LlmClient {
         security.addProperty("player_targeting",
                 "Verify player names using server_query player_list before targeting other players.");
         security.addProperty("player_permissions",
-                "When current access context says ai_access=player, only execute a command whose root appears in "
-                        + "allowed_commands. Never target another player or elevate access; request refusal when the "
-                        + "needed permission is unavailable. The server enforces this independently.");
+                "Use access_context.effective_permissions and access_context.allowed_commands as the requesting "
+                        + "player's permission data. When ai_access=player, only execute a command whose root appears "
+                        + "in allowed_commands; never assume an unlisted permission. Never target another player or "
+                        + "elevate access; refuse when the needed permission is unavailable. The server independently "
+                        + "checks permission immediately before dispatch.");
         root.add("security", security);
 
         JsonObject workflow = new JsonObject();
@@ -415,9 +480,10 @@ public final class LlmClient {
                         + "use server_query with one of player_list, player_info:<name>, world_list, plugin_list, tps, "
                         + "or server_info.");
         workflow.addProperty("player_mode",
-                "For ai_access=player, select execute only when the command root is in allowed_commands. Restrict actions "
-                        + "to the requesting player. If a task requires a command or target outside their permissions, "
-                        + "refuse rather than attempting it.");
+                "For ai_access=player, use effective_permissions and allowed_commands to determine capability, and "
+                        + "select execute only when the command root is in allowed_commands. Restrict actions to the "
+                        + "requesting player. If a task requires a command or target outside their permissions, refuse "
+                        + "rather than attempting it.");
         root.add("workflow", workflow);
         return gson.toJson(root);
     }

@@ -2,6 +2,7 @@ name: MCAIA
 version: '1.2.0'
 main: com.mcaia.plugin.MCAIAPlugin
 api-version: '1.21'
+folia-supported: true
 description: Minecraft AI Admin — AI-powered server management plugin
 authors:
   - TIS199
@@ -13,7 +14,7 @@ dependencies:
     Vault:
       load: BEFORE
       required: false
-      join-classpath: false
+      join-classpath: true
     LuckPerms:
       load: BEFORE
       required: false
@@ -25,7 +26,7 @@ dependencies:
     floodgate:
       load: BEFORE
       required: false
-      join-classpath: false
+      join-classpath: true
 
 permissions:
   mcaia.use:

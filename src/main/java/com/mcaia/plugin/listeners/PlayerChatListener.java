@@ -5,6 +5,8 @@ import com.mcaia.plugin.ai.AIConversationManager;
 import com.mcaia.plugin.ai.ResponseRouter;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.kyori.adventure.text.Component;
+import com.mcaia.plugin.util.FoliaTasks;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -42,15 +44,15 @@ public class PlayerChatListener implements Listener {
         // Extract plain text from the adventure Component
         String reply = PlainTextComponentSerializer.plainText().serialize(event.message());
 
-        // Resume the AI interaction on the main thread (ResponseRouter needs it)
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        FoliaTasks.entity(plugin, player, () -> {
             // Show the player their own reply privately with a prefix
             String prefix = plugin.getConfig().getString("prefix",
                     "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
             player.sendMessage(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage()
-                    .deserialize(prefix + "<gray><i>You replied: " + reply + "</i></gray>"));
+                    .deserialize(prefix + "<gray><i>You replied: </i></gray>")
+                    .append(Component.text(reply)));
 
             router.handlePlayerReply(player, reply);
-        });
+        }, () -> {});
     }
 }

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Stores per-player conversation history for the configured LLM provider, and manages
@@ -23,16 +24,19 @@ public class AIConversationManager {
 
     private final int maxHistoryLength;
 
-    // Per-player conversation history: UUID → deque of turns
-    private final Map<UUID, ArrayDeque<Turn>> histories = new ConcurrentHashMap<>();
+    private static final class Conversation {
+        private final ArrayDeque<Turn> turns = new ArrayDeque<>();
+        private long lastActivityMs = System.currentTimeMillis();
+    }
+
+    // All access to each Conversation is made inside ConcurrentHashMap.compute*.
+    private final Map<UUID, Conversation> histories = new ConcurrentHashMap<>();
 
     // Players currently waiting to answer an AI question
     private final Map<UUID, PendingQuery> pendingQueries = new ConcurrentHashMap<>();
 
-    // Last activity timestamp per player, for auto-expiry
-    private final Map<UUID, Long> lastActivity = new ConcurrentHashMap<>();
-
-    private static final long EXPIRY_MS = 10L * 60 * 1000; // 10 minutes
+    private static final long EXPIRY_MS = 10L * 60 * 1000; // Conversation history: 10 minutes.
+    private volatile long queryTimeoutMs = 60_000L;
 
     public AIConversationManager(int maxHistoryLength) {
         this.maxHistoryLength = maxHistoryLength;
@@ -51,46 +55,74 @@ public class AIConversationManager {
     }
 
     private void addTurn(UUID uuid, Turn turn) {
-        ArrayDeque<Turn> history = histories.computeIfAbsent(uuid, k -> new ArrayDeque<>());
-        history.addLast(turn);
-        // Trim to maxHistoryLength pairs (each pair = 1 user + 1 model turn)
-        while (history.size() > maxHistoryLength * 2) {
-            history.pollFirst();
+        long now = System.currentTimeMillis();
+        histories.compute(uuid, (key, conversation) -> {
+            Conversation current = conversation == null ? new Conversation() : conversation;
+            current.turns.addLast(turn);
+            trim(current.turns);
+            current.lastActivityMs = now;
+            return current;
+        });
+    }
+
+    private void trim(ArrayDeque<Turn> turns) {
+        int maxTurns = Math.max(2, maxHistoryLength * 2);
+        while (turns.size() > maxTurns) {
+            turns.pollFirst();
+            // Keep the history valid for providers that require a user first.
+            if (!turns.isEmpty() && "model".equals(turns.peekFirst().role())) {
+                turns.pollFirst();
+            }
         }
-        lastActivity.put(uuid, System.currentTimeMillis());
     }
 
     /** Get conversation history as an ordered list (oldest first). */
     public List<Turn> getHistory(UUID uuid) {
-        ArrayDeque<Turn> history = histories.get(uuid);
-        if (history == null) return List.of();
-        return List.copyOf(history);
+        AtomicReference<List<Turn>> snapshot = new AtomicReference<>(List.of());
+        histories.computeIfPresent(uuid, (key, conversation) -> {
+            snapshot.set(List.copyOf(conversation.turns));
+            return conversation;
+        });
+        return snapshot.get();
     }
 
     /** Clear a player's conversation history. */
     public void clearHistory(UUID uuid) {
         histories.remove(uuid);
-        lastActivity.remove(uuid);
+    }
+
+    public void clearAll() {
+        histories.clear();
+        pendingQueries.clear();
+    }
+
+    public int getHistoryPlayerCount() {
+        return histories.size();
+    }
+
+    public void setQueryTimeoutSeconds(long seconds) {
+        queryTimeoutMs = Math.max(1L, seconds) * 1000L;
     }
 
     /** Expire conversations that have been idle for more than EXPIRY_MS. */
     public void expireStale() {
         long now = System.currentTimeMillis();
-        lastActivity.entrySet().removeIf(e -> {
-            if (now - e.getValue() > EXPIRY_MS) {
-                histories.remove(e.getKey());
-                pendingQueries.remove(e.getKey());
-                return true;
+        histories.forEach((uuid, conversation) -> histories.computeIfPresent(uuid, (key, current) -> {
+            if (now - current.lastActivityMs > EXPIRY_MS) {
+                pendingQueries.remove(key);
+                return null;
             }
-            return false;
-        });
+            return current;
+        }));
     }
 
     // ── Pending query management ──────────────────────────────────────────────
 
     /** Register that the AI is waiting for the player to answer a question. */
-    public void setPendingQuery(UUID uuid, String question) {
-        pendingQueries.put(uuid, new PendingQuery(question, System.currentTimeMillis()));
+    public PendingQuery setPendingQuery(UUID uuid, String question) {
+        PendingQuery pending = new PendingQuery(question, System.currentTimeMillis());
+        pendingQueries.put(uuid, pending);
+        return pending;
     }
 
     /** Returns the pending query for the player, or null if none. */
@@ -108,10 +140,16 @@ public class AIConversationManager {
         PendingQuery pq = pendingQueries.get(uuid);
         if (pq == null) return false;
         // Auto-expire if too old
-        if (System.currentTimeMillis() - pq.timestampMs() > EXPIRY_MS) {
+        if (System.currentTimeMillis() - pq.timestampMs() > queryTimeoutMs) {
             pendingQueries.remove(uuid);
             return false;
         }
         return true;
+    }
+
+    public boolean expirePendingQuery(UUID uuid, long expectedTimestamp) {
+        PendingQuery current = pendingQueries.get(uuid);
+        return current != null && current.timestampMs() == expectedTimestamp
+                && pendingQueries.remove(uuid, current);
     }
 }

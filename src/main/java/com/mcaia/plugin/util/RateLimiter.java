@@ -12,10 +12,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RateLimiter {
 
     private final Map<UUID, Long> lastUsed = new ConcurrentHashMap<>();
-    private final long cooldownMs;
+    private volatile long cooldownMs;
 
     public RateLimiter(int cooldownSeconds) {
-        this.cooldownMs = cooldownSeconds * 1000L;
+        setCooldownSeconds(cooldownSeconds);
+    }
+
+    public void setCooldownSeconds(int cooldownSeconds) {
+        this.cooldownMs = Math.max(0, cooldownSeconds) * 1000L;
     }
 
     /**
@@ -39,5 +43,17 @@ public class RateLimiter {
     /** Remove a player's cooldown entry (e.g., on disconnect). */
     public void clearPlayer(UUID uuid) {
         lastUsed.remove(uuid);
+    }
+
+    public long getRemainingCooldown(UUID uuid) {
+        if (cooldownMs <= 0) return -1;
+        Long last = lastUsed.get(uuid);
+        if (last == null) return -1;
+        long remaining = cooldownMs - (System.currentTimeMillis() - last);
+        return remaining > 0 ? (long) Math.ceil(remaining / 1000.0) : -1;
+    }
+
+    public void recordUse(UUID uuid) {
+        lastUsed.put(uuid, System.currentTimeMillis());
     }
 }

@@ -6,9 +6,11 @@ import com.mcaia.plugin.ai.ResponseRouter;
 import com.mcaia.plugin.compat.PluginCompat;
 import com.mcaia.plugin.permissions.PermissionManager;
 import com.mcaia.plugin.util.RateLimiter;
+import com.mcaia.plugin.util.SafeMiniMessage;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.Component;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
@@ -31,7 +33,7 @@ import java.util.List;
  */
 public class AICommand implements BasicCommand {
 
-    private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final MiniMessage MM = SafeMiniMessage.INSTANCE;
 
     private final MCAIAPlugin           plugin;
     private final ResponseRouter        router;
@@ -65,7 +67,7 @@ public class AICommand implements BasicCommand {
             return;
         }
         if (!plugin.isOperational()) {
-            send(sender, "<red>⚠ MCAIA is not operational. Configure at least one AI provider API key.</red>");
+            send(sender, "<red>⚠ MCAIA is not operational. Configure a hosted provider key or an Ollama model.</red>");
             return;
         }
 
@@ -118,15 +120,15 @@ public class AICommand implements BasicCommand {
         if (sender instanceof Player player) {
             if (plugin.getConfig().getBoolean("rate-limit.enabled", true)
                     && !permissions.hasPermission(player, "mcaia.bypass-rate-limit")) {
-                long remaining = rateLimiter.getRemainingCooldown(player);
+                long remaining = rateLimiter.getRemainingCooldown(player.getUniqueId());
                 if (remaining > 0) {
                     send(player, "<yellow>⏳ Please wait <white>" + remaining + "s</white> before using /ai again.</yellow>");
-                    plugin.getWebhookLogger().logRateLimited(player.getName());
+                    plugin.getWebhookLogger().logRateLimited(compat.getCleanName(player));
                     return;
                 }
             }
             // Record rate limit timestamp
-            rateLimiter.recordUse(player);
+            rateLimiter.recordUse(player.getUniqueId());
         }
 
         // ── Build prompt from all args ────────────────────────────────────────
@@ -171,11 +173,12 @@ public class AICommand implements BasicCommand {
             var turn = history.get(i);
             String roleColor = turn.role().equals("user") ? "<aqua>You</aqua>" : "<green>AI</green>";
             String text = turn.text();
-            // Truncate long entries
-            if (text.length() > 120) text = text.substring(0, 120) + "…";
             // Strip JSON brackets for display
-            if (text.startsWith("{")) text = "<italic>" + text + "</italic>";
-            send(sender, roleColor + "<gray>: " + text + "</gray>");
+            if (text.startsWith("{")) text = historySummary(text);
+            if (text.length() > 120) text = text.substring(0, 120) + "…";
+            sender.sendMessage(MM.deserialize(prefix())
+                    .append(MM.deserialize(roleColor + "<gray>: </gray>"))
+                    .append(Component.text(text)));
         }
     }
 
@@ -191,7 +194,102 @@ public class AICommand implements BasicCommand {
         try {
             sender.sendMessage(MM.deserialize(prefix + msg));
         } catch (Exception e) {
-            sender.sendMessage("[AI] " + msg.replaceAll("<[^>]+>", ""));
+            sender.sendMessage(Component.text("[AI] " + msg));
+        }
+    }
+
+    private String prefix() {
+        return plugin.getConfig().getString("prefix",
+                "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
+    }
+
+    private String historySummary(String jsonText) {
+        try {
+            var parsed = com.google.gson.JsonParser.parseString(jsonText);
+            if (!parsed.isJsonObject()) return jsonText;
+            var object = parsed.getAsJsonObject();
+            String type = historyField(object, "type", "message");
+            return switch (type) {
+                case "request" -> "Request: " + historyField(object, "prompt", "");
+                case "player_reply" -> "Reply: " + historyField(object, "reply", "");
+                case "answer" -> "Answer: " + historyField(object, "message", "");
+                case "query_player" -> "AI asked: " + historyField(object, "question", "");
+                case "refuse" -> "AI declined: " + historyField(object, "reason", "");
+                case "error" -> "AI error: " + historyField(object, "error_message", "Unknown error");
+                case "execute" -> "Execute: /" + historyField(object, "command", "");
+                case "server_query" -> "Server query: " + historyField(object, "query", "");
+                case "execution_result" -> {
+                    String command = historyField(object, "command", "command");
+                    String output = historyField(object, "output", "");
+                    yield (object.has("success") && !object.get("success").getAsBoolean() ? "Failed: /" : "Result: /")
+                            + command + (output.isBlank() ? "" : " — " + output);
+                }
+                case "server_query_result" -> summarizeQueryResult(object);
+                default -> "Conversation response";
+            };
+        } catch (RuntimeException ignored) {
+            return jsonText;
+        }
+    }
+
+    private String summarizeQueryResult(com.google.gson.JsonObject wrapper) {
+        String query = historyField(wrapper, "query", "server");
+        String queryType = query.contains(":") ? query.substring(0, query.indexOf(':')) : query;
+        if (!wrapper.has("result") || !wrapper.get("result").isJsonObject()) {
+            return "Server query: " + historyField(wrapper, "error", "result received");
+        }
+        var result = wrapper.getAsJsonObject("result");
+        if (result.has("error")) return "Server query: " + historyField(result, "error", "failed");
+        return switch (queryType) {
+            case "player_list" -> "Online players: " + arraySummary(result.getAsJsonArray("players"));
+            case "player_info" -> "Player info: " + historyField(result, "name", "unknown")
+                    + " — " + historyField(result, "world", "unknown world") + " "
+                    + historyField(result, "x", "?") + ", " + historyField(result, "y", "?")
+                    + ", " + historyField(result, "z", "?");
+            case "world_list" -> "Worlds: " + worldSummary(result.getAsJsonArray("worlds"));
+            case "plugin_list" -> "Plugins: " + arraySummary(result.getAsJsonArray("plugins"), "name");
+            case "tps" -> "TPS: " + historyField(result, "tps_1m", "unknown");
+            case "server_info" -> "Server: " + historyField(result, "version", "unknown version")
+                    + ", " + historyField(result, "online_players", "?") + " players online";
+            default -> "Server query result received";
+        };
+    }
+
+    private String arraySummary(com.google.gson.JsonArray values) {
+        if (values == null || values.isEmpty()) return "none";
+        java.util.List<String> items = new java.util.ArrayList<>();
+        values.forEach(value -> items.add(value.isJsonPrimitive()
+                ? value.getAsString() : value.toString()));
+        return String.join(", ", items);
+    }
+
+    private String arraySummary(com.google.gson.JsonArray values, String field) {
+        if (values == null || values.isEmpty()) return "none";
+        java.util.List<String> items = new java.util.ArrayList<>();
+        values.forEach(value -> {
+            if (value.isJsonObject()) items.add(historyField(value.getAsJsonObject(), field, ""));
+        });
+        return String.join(", ", items);
+    }
+
+    private String worldSummary(com.google.gson.JsonArray worlds) {
+        if (worlds == null || worlds.isEmpty()) return "none";
+        java.util.List<String> items = new java.util.ArrayList<>();
+        worlds.forEach(value -> {
+            if (!value.isJsonObject()) return;
+            var world = value.getAsJsonObject();
+            items.add(historyField(world, "name", "unknown") + " ("
+                    + historyField(world, "players", "0") + " players)");
+        });
+        return String.join(", ", items);
+    }
+
+    private String historyField(com.google.gson.JsonObject object, String key, String fallback) {
+        try {
+            return object.has(key) && !object.get(key).isJsonNull()
+                    ? object.get(key).getAsString() : fallback;
+        } catch (RuntimeException ignored) {
+            return fallback;
         }
     }
 

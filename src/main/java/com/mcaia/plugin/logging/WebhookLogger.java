@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Logger;
 
 /**
@@ -25,8 +26,8 @@ public class WebhookLogger {
     private final OkHttpClient  http;
     private final ExecutorService executor;
 
-    private String       adminWebhookUrl = "";
-    private List<String> enabledEvents   = List.of();
+    private volatile String       adminWebhookUrl = "";
+    private volatile List<String> enabledEvents   = List.of();
 
     public WebhookLogger(JavaPlugin plugin) {
         this.plugin   = plugin;
@@ -152,7 +153,9 @@ public class WebhookLogger {
     }
 
     private void post(String url, JsonObject payload) {
-        executor.submit(() -> {
+        if (executor.isShutdown()) return;
+        try {
+            executor.execute(() -> {
             RequestBody body = RequestBody.create(payload.toString(), JSON_TYPE);
             Request req = new Request.Builder().url(url).post(body).build();
             try (Response resp = http.newCall(req).execute()) {
@@ -162,7 +165,10 @@ public class WebhookLogger {
             } catch (IOException e) {
                 log.warning("[MCAIA] Webhook POST error: " + e.getMessage());
             }
-        });
+            });
+        } catch (RejectedExecutionException ignored) {
+            // A request may finish while the plugin is shutting down.
+        }
     }
 
     private String truncate(String s, int max) {

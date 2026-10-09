@@ -5,6 +5,7 @@ import com.mcaia.plugin.ai.AIConversationManager;
 import io.papermc.paper.command.brigadier.BasicCommand;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -12,6 +13,8 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import com.mcaia.plugin.util.FoliaTasks;
+import com.mcaia.plugin.util.SafeMiniMessage;
 
 /**
  * /aiadmin — Administrative command for MCAIA.
@@ -27,7 +30,7 @@ import java.util.List;
  */
 public class AIAdminCommand implements BasicCommand {
 
-    private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final MiniMessage MM = SafeMiniMessage.INSTANCE;
 
     private final MCAIAPlugin           plugin;
     private final AIConversationManager conversations;
@@ -41,7 +44,9 @@ public class AIAdminCommand implements BasicCommand {
     public void execute(CommandSourceStack stack, String[] args) {
         CommandSender sender = stack.getSender();
 
-        if (!sender.hasPermission("mcaia.admin")) {
+        boolean reloadRequested = args.length > 0 && args[0].equalsIgnoreCase("reload");
+        String requiredPermission = reloadRequested ? "mcaia.reload" : "mcaia.admin";
+        if (!sender.hasPermission(requiredPermission)) {
             send(sender, "<red>You do not have permission to use /aiadmin.</red>");
             return;
         }
@@ -54,8 +59,10 @@ public class AIAdminCommand implements BasicCommand {
         switch (args[0].toLowerCase()) {
 
             case "reload" -> {
-                plugin.reloadPluginConfig();
-                send(sender, "<green>✔ MCAIA configuration reloaded.</green>");
+                FoliaTasks.global(plugin, () -> {
+                    plugin.reloadPluginConfig();
+                    send(sender, "<green>✔ MCAIA configuration reloaded.</green>");
+                });
             }
 
             case "status" -> sendStatus(sender);
@@ -66,29 +73,28 @@ public class AIAdminCommand implements BasicCommand {
                     return;
                 }
                 if (args[1].equals("*")) {
-                    // Clear everyone
-                    for (Player p : Bukkit.getOnlinePlayers()) {
-                        conversations.clearHistory(p.getUniqueId());
-                        conversations.clearPendingQuery(p.getUniqueId());
-                    }
-                    send(sender, "<green>✔ Cleared AI history for all online players.</green>");
+                    conversations.clearAll();
+                    send(sender, "<green>✔ Cleared all AI conversation histories.</green>");
                 } else {
-                    Player target = Bukkit.getPlayerExact(args[1]);
+                    java.util.UUID target = plugin.getServerDataProvider().findOnlinePlayerUuid(args[1]);
                     if (target == null) {
                         send(sender, "<red>Player '" + args[1] + "' is not online.</red>");
                         return;
                     }
-                    conversations.clearHistory(target.getUniqueId());
-                    conversations.clearPendingQuery(target.getUniqueId());
-                    send(sender, "<green>✔ Cleared AI history for " + target.getName() + ".</green>");
+                    conversations.clearHistory(target);
+                    conversations.clearPendingQuery(target);
+                    send(sender, "<green>✔ Cleared AI history for " + args[1] + ".</green>");
                 }
             }
 
             case "debug" -> {
-                boolean current = plugin.getConfig().getBoolean("logging.debug-mode", false);
-                plugin.getConfig().set("logging.debug-mode", !current);
-                send(sender, "<yellow>Debug mode: " + (!current ? "<green>ON</green>" : "<red>OFF</red>") + "</yellow>");
-                send(sender, "<gray>Note: This change is not saved to disk. Use /aiadmin reload after editing config.yml to persist it.</gray>");
+                FoliaTasks.global(plugin, () -> {
+                    boolean current = plugin.getConfig().getBoolean("logging.debug-mode", false);
+                    plugin.getConfig().set("logging.debug-mode", !current);
+                    plugin.getFileLogger().setDebugEnabled(!current);
+                    send(sender, "<yellow>Debug mode: " + (!current ? "<green>ON</green>" : "<red>OFF</red>") + "</yellow>");
+                    send(sender, "<gray>Note: This change is not saved to disk.</gray>");
+                });
             }
 
             default -> {
@@ -99,6 +105,10 @@ public class AIAdminCommand implements BasicCommand {
     }
 
     private void sendStatus(CommandSender sender) {
+        FoliaTasks.global(plugin, () -> sendStatusOnGlobal(sender));
+    }
+
+    private void sendStatusOnGlobal(CommandSender sender) {
         boolean tosOk   = plugin.getConfig().getBoolean("tos-accepted", false);
         boolean debug   = plugin.getConfig().getBoolean("logging.debug-mode", false);
         String permBack = plugin.getPermissionManager() != null
@@ -119,7 +129,8 @@ public class AIAdminCommand implements BasicCommand {
         send(sender, "<gray>Command:     </gray><white>/" + cmdName + "</white>");
         send(sender, "<gray>Perm Backend:</gray><white>" + permBack + "</white>");
         send(sender, "<gray>Debug Mode:  </gray>" + (debug ? "<yellow>ON</yellow>" : "<green>OFF</green>"));
-        send(sender, "<gray>Online:      </gray><white>" + Bukkit.getOnlinePlayers().size() + "/" + Bukkit.getMaxPlayers() + "</white>");
+        send(sender, "<gray>Online:      </gray><white>" + plugin.getServerDataProvider().onlinePlayerCount()
+                + "/" + Bukkit.getMaxPlayers() + "</white>");
 
         // Integration status
         if (plugin.getPluginCompat() != null) {
@@ -146,21 +157,32 @@ public class AIAdminCommand implements BasicCommand {
     private void send(CommandSender sender, String msg) {
         String prefix = plugin.getConfig().getString("prefix",
                 "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
-        sender.sendMessage(MM.deserialize(prefix + msg));
+        FoliaTasks.forSender(plugin, sender, () -> {
+            try {
+                sender.sendMessage(MM.deserialize(prefix + msg));
+            } catch (Exception ignored) {
+                sender.sendMessage(Component.text("[MCAIA] " + prefix + msg));
+            }
+        }, () -> {});
     }
 
     @Override
     public Collection<String> suggest(CommandSourceStack stack, String[] args) {
-        if (!stack.getSender().hasPermission("mcaia.admin")) return List.of();
+        CommandSender sender = stack.getSender();
+        boolean canAdmin = sender.hasPermission("mcaia.admin");
+        boolean canReload = sender.hasPermission("mcaia.reload");
+        if (!canAdmin && !canReload) return List.of();
         if (args.length <= 1) {
-            List<String> subs = new ArrayList<>(List.of("reload", "status", "clearhistory", "debug"));
+            List<String> subs = new ArrayList<>();
+            if (canReload) subs.add("reload");
+            if (canAdmin) subs.addAll(List.of("status", "clearhistory", "debug"));
             String cur = args.length == 0 ? "" : args[0].toLowerCase();
             return subs.stream().filter(s -> s.startsWith(cur)).toList();
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("clearhistory")) {
+        if (canAdmin && args.length == 2 && args[0].equalsIgnoreCase("clearhistory")) {
             List<String> targets = new ArrayList<>();
             targets.add("*");
-            Bukkit.getOnlinePlayers().forEach(p -> targets.add(p.getName()));
+            targets.addAll(plugin.getServerDataProvider().onlinePlayerNames());
             return targets.stream().filter(t -> t.toLowerCase().startsWith(args[1].toLowerCase())).toList();
         }
         return List.of();
@@ -168,11 +190,11 @@ public class AIAdminCommand implements BasicCommand {
 
     @Override
     public boolean canUse(CommandSender sender) {
-        return sender.hasPermission("mcaia.admin");
+        return sender.hasPermission("mcaia.admin") || sender.hasPermission("mcaia.reload");
     }
 
     @Override
     public String permission() {
-        return "mcaia.admin";
+        return null;
     }
 }

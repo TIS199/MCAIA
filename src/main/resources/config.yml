@@ -26,7 +26,7 @@ command-name: "ai"
 #   AI SETTINGS
 # ================================================================
 ai:
-  # Configure at least one provider API key below.
+  # Configure at least one hosted API key or enable Ollama with a local model.
   providers:
     gemini:
       api-key: ""
@@ -42,6 +42,14 @@ ai:
       api-key: ""
       site-url: ""
       app-name: "MCAIA"
+    ollama:
+      # Local Ollama does not require an API key. Pull a model first and set its exact name below.
+      enabled: false
+      base-url: "http://127.0.0.1:11434"
+      model: ""
+
+  # Optional priority override. If omitted, provider-order from models.yml is used.
+  # provider-order: ["ollama", "gemini", "openai", "anthropic", "grok", "openrouter"]
 
   # Maximum tokens (words) in the AI's response
   max-tokens: 2048
@@ -59,8 +67,7 @@ ai:
   # Maximum internal AI loop iterations per request (prevents infinite loops).
   max-iterations: 8
   
-  # Automatically switch to the next model in models.yml if the current one
-  # returns a rate limit (429) or high demand (503) error.
+  # Try the next configured model/provider after retryable errors or invalid model IDs.
   smart-switching: true
 
   # Delay in server ticks to wait for command output that arrives asynchronously.

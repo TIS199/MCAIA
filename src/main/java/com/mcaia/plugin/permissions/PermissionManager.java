@@ -87,9 +87,7 @@ public class PermissionManager {
         // For basic use permission, also check the permitted-players list
         if ("mcaia.use".equals(permNode) || "mcaia.history".equals(permNode)) {
             if (!fallbackRequireOp) return true;
-            String name = player.getName();
-            // Strip Floodgate prefix if present
-            if (name.startsWith(".")) name = name.substring(1);
+            String name = compat.getCleanName(player);
             return permittedPlayers.contains(name);
         }
         return false;
@@ -99,4 +97,6 @@ public class PermissionManager {
 
     /** Reload config values (called by /aiadmin reload). */
     public void reload() { loadConfig(); }
+
+    public Permission getVaultPermissionProvider() { return vaultPerms; }
 }

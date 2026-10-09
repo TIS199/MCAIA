@@ -13,6 +13,7 @@ import com.mcaia.plugin.logging.FileLogger;
 import com.mcaia.plugin.logging.WebhookLogger;
 import com.mcaia.plugin.permissions.PermissionManager;
 import com.mcaia.plugin.util.RateLimiter;
+import com.mcaia.plugin.util.FoliaTasks;
 import com.mcaia.plugin.util.UpdateChecker;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import org.bstats.bukkit.Metrics;
@@ -54,6 +55,7 @@ public final class MCAIAPlugin extends JavaPlugin {
     private LlmClient             llmClient;
     private ResponseRouter        responseRouter;
     private UpdateChecker         updateChecker;
+    private ServerDataProvider    serverDataProvider;
 
     // ── Configs ───────────────────────────────────────────────────────────────
     private FileConfiguration modelsConfig;
@@ -125,18 +127,19 @@ public final class MCAIAPlugin extends JavaPlugin {
         // 6. AI components
         int maxHistory = getConfig().getInt("ai.max-history-length", 10);
         conversationManager = new AIConversationManager(maxHistory);
+        conversationManager.setQueryTimeoutSeconds(getConfig().getLong("ai.query-timeout-seconds", 60));
 
         llmClient = new LlmClient(this, fileLogger);
         llmClient.initialize();
         if (getConfig().getBoolean("tos-accepted", false) && !llmClient.hasConfiguredProvider()) {
-            getLogger().severe("[MCAIA] No usable AI provider configured. Add an API key and model list for a provider.");
+            getLogger().severe("[MCAIA] No usable AI provider configured. Set up a hosted provider key or an Ollama model.");
         }
         operational = getConfig().getBoolean("tos-accepted", false) && llmClient.hasConfiguredProvider();
 
-        ServerDataProvider dataProvider = new ServerDataProvider();
+        serverDataProvider = new ServerDataProvider(this);
 
         responseRouter = new ResponseRouter(
-                this, llmClient, conversationManager, dataProvider, fileLogger, webhookLogger);
+                this, llmClient, conversationManager, serverDataProvider, fileLogger, webhookLogger);
 
         // 7. Register commands via Paper's LifecycleEvents API
         String cmdName = getConfig().getString("command-name", "ai");
@@ -166,15 +169,14 @@ public final class MCAIAPlugin extends JavaPlugin {
         });
 
         // 8. Register event listeners
-        updateChecker = new UpdateChecker(this);
+        updateChecker = new UpdateChecker(this, serverDataProvider);
         getServer().getPluginManager().registerEvents(
-                new PlayerJoinListener(this, conversationManager, updateChecker), this);
+                new PlayerJoinListener(this, conversationManager, updateChecker, serverDataProvider, responseRouter), this);
         getServer().getPluginManager().registerEvents(
                 new PlayerChatListener(this, conversationManager, responseRouter), this);
 
         // 9. Schedule periodic stale conversation expiry (every 5 minutes)
-        getServer().getScheduler().runTaskTimerAsynchronously(this,
-                conversationManager::expireStale, 6000L, 6000L);
+        FoliaTasks.asyncRepeating(this, conversationManager::expireStale, 5, 5, java.util.concurrent.TimeUnit.MINUTES);
 
         updateChecker.start();
 
@@ -191,12 +193,14 @@ public final class MCAIAPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (webhookLogger != null) webhookLogger.shutdown();
+        if (fileLogger != null) fileLogger.shutdown();
         getLogger().info("MCAIA disabled.");
     }
 
     // ── Config reload (called by /aiadmin reload) ─────────────────────────────
 
     public void reloadPluginConfig() {
+        reloadConfig();
         loadCustomConfigs();
 
         // Propagate new config values to all components
@@ -204,12 +208,16 @@ public final class MCAIAPlugin extends JavaPlugin {
         if (webhookLogger != null) webhookLogger.reload();
         if (permissionManager != null) permissionManager.reload();
         if (llmClient != null) llmClient.reload();
+        if (rateLimiter != null) rateLimiter.setCooldownSeconds(getConfig().getInt("rate-limit.cooldown-seconds", 15));
+        if (conversationManager != null) {
+            conversationManager.setQueryTimeoutSeconds(getConfig().getLong("ai.query-timeout-seconds", 60));
+        }
 
         operational = getConfig().getBoolean("tos-accepted", false)
                 && llmClient != null && llmClient.hasConfiguredProvider();
         if (getConfig().getBoolean("tos-accepted", false) && llmClient != null
                 && !llmClient.hasConfiguredProvider()) {
-            getLogger().severe("[MCAIA] No usable AI provider configured. Add an API key and model list for a provider.");
+            getLogger().severe("[MCAIA] No usable AI provider configured. Set up a hosted provider key or an Ollama model.");
         }
         getLogger().info("Configuration reloaded. Operational: " + operational);
     }
@@ -222,6 +230,8 @@ public final class MCAIAPlugin extends JavaPlugin {
     public PermissionManager getPermissionManager() { return permissionManager;  }
     public RateLimiter       getRateLimiter()       { return rateLimiter;        }
     public LlmClient         getLlmClient()         { return llmClient;          }
+    public ServerDataProvider getServerDataProvider() { return serverDataProvider; }
+    public ResponseRouter    getResponseRouter()    { return responseRouter;     }
     public boolean           isOperational()        { return operational;        }
 
     public FileConfiguration getModelsConfig()      { return modelsConfig;       }

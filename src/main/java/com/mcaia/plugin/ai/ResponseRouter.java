@@ -4,380 +4,441 @@ import com.google.gson.JsonObject;
 import com.mcaia.plugin.MCAIAPlugin;
 import com.mcaia.plugin.logging.FileLogger;
 import com.mcaia.plugin.logging.WebhookLogger;
+import com.mcaia.plugin.util.FoliaTasks;
+import com.mcaia.plugin.util.SafeMiniMessage;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
+import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Routes AI responses to the correct handler and manages the
- * request → server_query → execute → answer conversation loop.
- *
- * Threading model:
- *   - AI HTTP calls run on an async thread (via Bukkit scheduler).
- *   - Bukkit API calls (sending messages, dispatching commands, querying server data)
- *     are dispatched back to the main thread.
- *
- * Loop limit: config ai.max-iterations (default 8) prevents infinite loops.
- */
-public class ResponseRouter {
+/** Coordinates the LLM loop and schedules Bukkit work on the owning Folia scheduler. */
+public final class ResponseRouter {
 
-    private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final MiniMessage MM = SafeMiniMessage.INSTANCE;
 
-    private final MCAIAPlugin           plugin;
-    private final LlmClient             llmClient;
+    private static final UUID CONSOLE_UUID = new UUID(0, 0);
+
+    private final MCAIAPlugin plugin;
+    private final LlmClient llmClient;
     private final AIConversationManager conversations;
-    private final ServerDataProvider    dataProvider;
-    private final FileLogger            fileLogger;
-    private final WebhookLogger         webhookLogger;
+    private final ServerDataProvider dataProvider;
+    private final FileLogger fileLogger;
+    private final WebhookLogger webhookLogger;
+    private final Set<UUID> activeRequests = ConcurrentHashMap.newKeySet();
 
-    public ResponseRouter(MCAIAPlugin plugin,
-                          LlmClient llmClient,
-                          AIConversationManager conversations,
-                          ServerDataProvider dataProvider,
-                          FileLogger fileLogger,
-                          WebhookLogger webhookLogger) {
-        this.plugin        = plugin;
-        this.llmClient     = llmClient;
+    public ResponseRouter(MCAIAPlugin plugin, LlmClient llmClient,
+                          AIConversationManager conversations, ServerDataProvider dataProvider,
+                          FileLogger fileLogger, WebhookLogger webhookLogger) {
+        this.plugin = plugin;
+        this.llmClient = llmClient;
         this.conversations = conversations;
-        this.dataProvider  = dataProvider;
-        this.fileLogger    = fileLogger;
+        this.dataProvider = dataProvider;
+        this.fileLogger = fileLogger;
         this.webhookLogger = webhookLogger;
     }
 
-    /**
-     * Start a new AI interaction from a player's or console's /ai prompt.
-     * Must be called from the MAIN thread — it will schedule the async work itself.
-     */
+    /** Must be called in the sender's context (entity region for a player). */
     public void handleNewRequest(CommandSender sender, String prompt) {
-        String senderName = sender.getName();
-        UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
-
-        // Build initial request message
-        JsonObject context = new JsonObject();
-        context.addProperty("online_players", Bukkit.getOnlinePlayers().size());
-        context.addProperty("tps_1m",         Math.round(Bukkit.getTPS()[0] * 10.0) / 10.0);
-        context.addProperty("server_version", Bukkit.getMinecraftVersion());
-
-        JsonObject request = new JsonObject();
-        request.addProperty("type",    "request");
-        request.addProperty("player",  senderName);
-        request.addProperty("prompt",  prompt);
-        request.add("server_context",  context);
-        request.add("access_context", getAccessContext(sender));
-
-        String requestText = request.toString();
-
-        // Add to conversation history
-        conversations.addUserTurn(uuid, requestText);
-
-        // Log usage
-        webhookLogger.logCommandUsed(senderName, prompt);
-        fileLogger.info("[REQUEST] " + senderName + ": " + prompt);
-
-        // Fire the async loop
-        int maxIter = plugin.getConfig().getInt("ai.max-iterations", 8);
-        runAsyncLoop(sender, maxIter, 0);
-    }
-
-    /**
-     * Resume an AI interaction after the player answered a pending question.
-     * Called from the chat listener on the main thread.
-     */
-    public void handlePlayerReply(Player player, String reply) {
-        conversations.clearPendingQuery(player.getUniqueId());
-
-        JsonObject replyMsg = new JsonObject();
-        replyMsg.addProperty("type",  "player_reply");
-        replyMsg.addProperty("reply", reply);
-
-        conversations.addUserTurn(player.getUniqueId(), replyMsg.toString());
-
-        fileLogger.info("[REPLY] " + player.getName() + ": " + reply);
-
-        int maxIter = plugin.getConfig().getInt("ai.max-iterations", 8);
-        runAsyncLoop(player, maxIter, 0);
-    }
-
-    // ── Core async loop ───────────────────────────────────────────────────────
-
-    /**
-     * Run one iteration of the AI conversation loop asynchronously.
-     * Each iteration: call the configured LLM provider → handle → maybe loop again.
-     */
-    private void runAsyncLoop(CommandSender sender, int maxIter, int iteration) {
-        if (iteration >= maxIter) {
-            sync(() -> sendToSender(sender,
-                    "<red>⚠ The AI reached the maximum number of steps without finishing. " +
-                    "Try rephrasing your request.</red>"));
+        UUID uuid = uuidOf(sender);
+        String senderName = senderName(sender);
+        if (!activeRequests.add(uuid)) {
+            sendToSender(sender, "<yellow>You already have an AI request in progress.</yellow>");
             return;
         }
 
-        UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
-        String runtimeContext = getAccessContext(sender).toString();
+        JsonObject accessContext;
+        try {
+            accessContext = getAccessContext(sender);
+        } catch (RuntimeException e) {
+            activeRequests.remove(uuid);
+            sendToSender(sender, "<red>Could not read your current command permissions.</red>");
+            return;
+        }
 
-        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            // Snapshot history for the API call
-            List<AIConversationManager.Turn> history = conversations.getHistory(uuid);
-
-            JsonObject aiResponse = llmClient.sendMessage(uuid, history, runtimeContext);
-
-            // Store AI response in history
-            String aiResponseText = aiResponse.toString();
-            conversations.addModelTurn(uuid, aiResponseText);
-
-            // Process the response on the main thread
-            sync(() -> {
-                if (sender instanceof Player p && !p.isOnline()) return; // Player left
-
-                String type = aiResponse.has("type") ? aiResponse.get("type").getAsString() : "error";
-
-                switch (type) {
-
-                    case "answer" -> {
-                        String msg = safeString(aiResponse, "message", "Done.");
-                        sendToSender(sender, msg);
-                        fileLogger.info("[ANSWER → " + sender.getName() + "] " + msg);
+        boolean collectPlayerCommands = sender instanceof Player player
+                && "player".equals(accessContext.get("ai_access").getAsString())
+                && plugin.getConfig().getBoolean("permissions.player-command-mode.enabled", false)
+                && plugin.getPermissionManager().hasPermission(player, "mcaia.player");
+        if (collectPlayerCommands) {
+            Player player = (Player) sender;
+            FoliaTasks.global(plugin, () -> {
+                List<java.util.Map.Entry<String, Command>> commandSnapshot = PlayerCommandAccess.commandSnapshot();
+                FoliaTasks.entity(plugin, player, () -> {
+                    if (!player.isOnline()) {
+                        finishRequest(uuid);
+                        return;
                     }
-
-                    case "execute" -> handleExecute(sender, aiResponse, maxIter, iteration);
-
-                    case "server_query" -> handleServerQuery(sender, aiResponse, maxIter, iteration);
-
-                    case "query_player" -> {
-                        String question = safeString(aiResponse, "question", "Can you provide more information?");
-                        conversations.setPendingQuery(uuid, question);
-                        sendToSender(sender, "<yellow>❓ " + question + "</yellow>");
-                        fileLogger.info("[QUERY → " + sender.getName() + "] " + question);
-                    }
-
-                    case "refuse" -> {
-                        String reason = safeString(aiResponse, "reason", "Request declined.");
-                        sendToSender(sender, "<red>🚫 " + reason + "</red>");
-                        fileLogger.info("[REFUSE → " + sender.getName() + "] " + reason);
-                        webhookLogger.logCommandRefused(
-                                sender.getName(), reason);
-                    }
-
-                    case "error" -> {
-                        String errMsg = safeString(aiResponse, "error_message", "Unknown error.");
-                        sendToSender(sender, "<red>⚠ AI error: " + errMsg + "</red>");
-                        fileLogger.error("[AI_ERROR → " + sender.getName() + "] " + errMsg);
-                        webhookLogger.logError("AI error for " + sender.getName(), errMsg);
-                    }
-
-                    default -> {
-                        sendToSender(sender, "<red>⚠ AI returned an unrecognized response type: " + type + "</red>");
-                        fileLogger.warn("[UNKNOWN_TYPE → " + sender.getName() + "] type=" + type);
-                    }
-                }
+                    var allowed = new com.google.gson.JsonArray();
+                    PlayerCommandAccess.allowedCommands(player, plugin.getPermissionManager(), commandSnapshot)
+                            .forEach(allowed::add);
+                    accessContext.add("allowed_commands", allowed);
+                    beginRequest(sender, uuid, senderName, prompt, accessContext);
+                }, () -> finishRequest(uuid));
             });
+        } else {
+            beginRequest(sender, uuid, senderName, prompt, accessContext);
+        }
+    }
+
+    private void beginRequest(CommandSender sender, UUID uuid, String senderName,
+                              String prompt, JsonObject accessContext) {
+        String accessContextJson = accessContext.toString();
+        dataProvider.initialContext(context -> {
+            JsonObject request = new JsonObject();
+            request.addProperty("type", "request");
+            request.addProperty("player", senderName);
+            request.addProperty("prompt", prompt);
+            request.add("server_context", context);
+            request.add("access_context", com.google.gson.JsonParser.parseString(accessContextJson));
+            conversations.addUserTurn(uuid, request.toString());
+            webhookLogger.logCommandUsed(senderName, prompt);
+            fileLogger.info("[REQUEST] " + senderName + ": " + prompt);
+            runAsyncLoop(sender, plugin.getConfig().getInt("ai.max-iterations", 8), 0, accessContextJson);
         });
     }
 
-    // ── Execute handler ───────────────────────────────────────────────────────
+    /** Called on the player's entity scheduler after a pending question reply. */
+    public void handlePlayerReply(Player player, String reply) {
+        UUID uuid = player.getUniqueId();
+        if (!activeRequests.contains(uuid) || !conversations.hasPendingQuery(uuid)) return;
+        conversations.clearPendingQuery(uuid);
 
-    private void handleExecute(CommandSender sender, JsonObject aiResponse, int maxIter, int iteration) {
-        String command     = safeString(aiResponse, "command",     "").trim();
-        String description = safeString(aiResponse, "description", "Executing command");
+        JsonObject replyMessage = new JsonObject();
+        replyMessage.addProperty("type", "player_reply");
+        replyMessage.addProperty("reply", reply);
+        conversations.addUserTurn(uuid, replyMessage.toString());
+        fileLogger.info("[REPLY] " + senderName(player) + ": " + reply);
+        runAsyncLoop(player, plugin.getConfig().getInt("ai.max-iterations", 8), 0,
+                getAccessContext(player).toString());
+    }
 
+    public void handlePlayerQuit(UUID uuid) {
+        activeRequests.remove(uuid);
+        conversations.clearPendingQuery(uuid);
+    }
+
+    private void runAsyncLoop(CommandSender sender, int maxIterations, int iteration, String runtimeContext) {
+        UUID uuid = uuidOf(sender);
+        if (iteration >= maxIterations) {
+            finishRequest(uuid);
+            sendToSender(sender, "<red>⚠ The AI reached the maximum number of steps without finishing. Try rephrasing your request.</red>");
+            return;
+        }
+
+        FoliaTasks.async(plugin, () -> {
+            JsonObject response;
+            try {
+                response = llmClient.sendMessage(uuid, conversations.getHistory(uuid), runtimeContext);
+                conversations.addModelTurn(uuid, response.toString());
+            } catch (RuntimeException error) {
+                response = new JsonObject();
+                response.addProperty("type", "error");
+                response.addProperty("error_message", "The AI request failed: " + safeError(error));
+            }
+            JsonObject finalResponse = response;
+            FoliaTasks.forSender(plugin, sender,
+                    () -> processResponse(sender, finalResponse, maxIterations, iteration, runtimeContext),
+                    () -> finishRequest(uuid));
+        });
+    }
+
+    private void processResponse(CommandSender sender, JsonObject response, int maxIterations,
+                                 int iteration, String runtimeContext) {
+        if (sender instanceof Player player && !player.isOnline()) {
+            finishRequest(uuidOf(sender));
+            return;
+        }
+        String type = safeString(response, "type", "error");
+        switch (type) {
+            case "answer" -> {
+                String message = safeString(response, "message", "Done.");
+                sendToSender(sender, message);
+                fileLogger.info("[ANSWER → " + senderName(sender) + "] " + message);
+                finishRequest(uuidOf(sender));
+            }
+            case "execute" -> handleExecute(sender, response, maxIterations, iteration, runtimeContext);
+            case "server_query" -> handleServerQuery(sender, response, maxIterations, iteration, runtimeContext);
+            case "query_player" -> {
+                UUID uuid = uuidOf(sender);
+                String question = safeString(response, "question", "Can you provide more information?");
+                AIConversationManager.PendingQuery pending = conversations.setPendingQuery(uuid, question);
+                sendToSender(sender, "<yellow>❓ " + question + "</yellow>");
+                long timeout = Math.max(1, plugin.getConfig().getLong("ai.query-timeout-seconds", 60));
+                FoliaTasks.asyncDelayed(plugin, () -> {
+                    if (conversations.expirePendingQuery(uuid, pending.timestampMs())) {
+                        finishRequest(uuid);
+                        sendToSender(sender, "<gray>Your AI follow-up expired. Start a new request if you still need help.</gray>");
+                    }
+                }, timeout, TimeUnit.SECONDS);
+            }
+            case "refuse" -> {
+                String reason = safeString(response, "reason", "Request declined.");
+                sendToSender(sender, "<red>🚫 " + reason + "</red>");
+                fileLogger.info("[REFUSE → " + senderName(sender) + "] " + reason);
+                webhookLogger.logCommandRefused(senderName(sender), reason);
+                finishRequest(uuidOf(sender));
+            }
+            case "error" -> {
+                String message = safeString(response, "error_message", "Unknown error.");
+                sendToSender(sender, "<red>⚠ AI error: " + message + "</red>");
+                fileLogger.error("[AI_ERROR → " + senderName(sender) + "] " + message);
+                webhookLogger.logError("AI error for " + senderName(sender), message);
+                finishRequest(uuidOf(sender));
+            }
+            default -> {
+                sendToSender(sender, "<red>⚠ AI returned an unrecognized response type.</red>");
+                fileLogger.warn("[UNKNOWN_TYPE → " + senderName(sender) + "] type=" + type);
+                finishRequest(uuidOf(sender));
+            }
+        }
+    }
+
+    private void handleExecute(CommandSender sender, JsonObject response, int maxIterations,
+                               int iteration, String runtimeContext) {
+        String senderName = senderName(sender);
+        String command = safeString(response, "command", "").trim();
+        String description = safeString(response, "description", "Executing command");
         while (command.startsWith("/")) command = command.substring(1).stripLeading();
         if (command.isBlank()) {
             sendToSender(sender, "<red>⚠ AI tried to execute an empty command.</red>");
+            reportExecutionResult(sender, "", false, "Empty command.", "", false,
+                    maxIterations, iteration, runtimeContext);
             return;
         }
 
-        List<String> blacklist = plugin.getBannedCommandsConfig().getStringList("banned-commands");
-        List<String> effectiveBlacklist = new java.util.ArrayList<>(blacklist);
-        Bukkit.getCommandMap().getKnownCommands().forEach((label, registeredCommand) -> {
-            if (CommandGuard.findBlockedCommand(registeredCommand.getName(), blacklist) != null) {
-                effectiveBlacklist.add(label);
+        String requestedCommand = command;
+        FoliaTasks.global(plugin, () -> {
+            List<String> configuredBans = plugin.getBannedCommandsConfig().getStringList("banned-commands");
+            List<String> effectiveBans = new java.util.ArrayList<>(configuredBans);
+            Bukkit.getCommandMap().getKnownCommands().forEach((label, registered) -> {
+                if (CommandGuard.findBlockedCommand(registered.getName(), configuredBans) != null) {
+                    effectiveBans.add(label);
+                }
+            });
+            String blocked = CommandGuard.findBlockedCommand(requestedCommand, effectiveBans);
+            if (blocked != null) {
+                String reason = "Blocked by server command safety guard: " + blocked;
+                sendToSender(sender, "<red>🔒 Command was blocked by the server safety guard.</red>");
+                fileLogger.warn("[BLOCKED → " + senderName + "] " + requestedCommand + " (" + blocked + ")");
+                webhookLogger.logCommandBlocked(senderName, requestedCommand);
+                reportExecutionResult(sender, requestedCommand, false, reason, "", false,
+                        maxIterations, iteration, runtimeContext);
+                return;
+            }
+
+            List<Command> commandChain = CommandGuard.commandRoots(requestedCommand).stream()
+                    .map(Bukkit.getCommandMap()::getCommand)
+                    .toList();
+            if (sender instanceof Player player) {
+                executeForPlayer(player, commandChain, requestedCommand, description,
+                        maxIterations, iteration, runtimeContext);
+            } else {
+                sendToSender(sender, "<gray>⚙ " + description + "...</gray>");
+                dispatchAsConsole(sender, senderName, requestedCommand, maxIterations, iteration, runtimeContext);
             }
         });
-        String blockedCommand = CommandGuard.findBlockedCommand(command, effectiveBlacklist);
-        if (blockedCommand != null) {
-            String refusalMsg = "Command '" + command + "' was blocked by the server safety guard: " + blockedCommand;
-            sendToSender(sender, "<red>🔒 " + refusalMsg + "</red>");
-            fileLogger.warn("[BLOCKED → " + sender.getName() + "] " + command);
-            webhookLogger.logCommandBlocked(sender.getName(), command);
-            reportExecutionResult(sender, command, false, refusalMsg, "", false, maxIter, iteration);
-            return;
-        }
-
-        Player player = sender instanceof Player p ? p : null;
-        boolean adminAccess = player == null
-                || plugin.getPermissionManager().hasPermission(player, "mcaia.use");
-        if (!adminAccess) {
-            boolean playerModeEnabled = plugin.getConfig().getBoolean("permissions.player-command-mode.enabled", false);
-            String rootLabel = command.split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
-            org.bukkit.command.Command registered = Bukkit.getCommandMap().getCommand(rootLabel);
-            if (!playerModeEnabled || !plugin.getPermissionManager().hasPermission(player, "mcaia.player")) {
-                reportExecutionResult(sender, command, false, "Player command access is not enabled.", "", false, maxIter, iteration);
-                return;
-            }
-            String requiredPermission = registered == null ? null : registered.getPermission();
-            boolean hasCommandPermission = registered != null && registered.testPermissionSilent(player);
-            if (!hasCommandPermission && registered != null
-                    && requiredPermission != null && !requiredPermission.isBlank()) {
-                hasCommandPermission = plugin.getPermissionManager().hasPermission(player, requiredPermission);
-            }
-            if (registered == null || !hasCommandPermission) {
-                String reason = registered == null
-                        ? "Unknown commands cannot be run in player access mode."
-                        : "You do not have permission to run this command.";
-                reportExecutionResult(sender, command, false, reason, "", false, maxIter, iteration);
-                return;
-            }
-        }
-
-        // Inform sender we're executing
-        sendToSender(sender, "<gray>⚙ " + description + "...</gray>");
-        fileLogger.info("[EXECUTE → " + sender.getName() + "] " + command);
-
-        boolean success;
-        String errorMessage = null;
-        CommandOutputCapture outputCapture = null;
-        String commandOutput = "";
-        try {
-            if (adminAccess) {
-                outputCapture = new CommandOutputCapture(Bukkit.getConsoleSender());
-                success = Bukkit.dispatchCommand(outputCapture.createSender(), command);
-                commandOutput = outputCapture.getOutput();
-            } else {
-                success = Objects.requireNonNull(player, "Player access requires a player sender")
-                        .performCommand(command);
-            }
-            if (!success) errorMessage = "Command returned false (may not exist or had no effect)";
-        } catch (Exception e) {
-            success = false;
-            errorMessage = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-        }
-
-        webhookLogger.logCommandExecuted(
-                sender.getName(), command, success, errorMessage);
-        fileLogger.info("[EXEC_RESULT] success=" + success + " cmd=" + command +
-                (errorMessage != null ? " error=" + errorMessage : ""));
-
-        if (adminAccess && outputCapture != null && commandOutput.isBlank()) {
-            int waitTicks = Math.max(0, plugin.getConfig().getInt("ai.command-output-wait-ticks", 30));
-            if (waitTicks > 0) {
-                CommandOutputCapture pendingCapture = outputCapture;
-                boolean commandSucceeded = success;
-                String commandError = errorMessage;
-                sendExecutionResultLater(sender, command, commandSucceeded, commandError,
-                        pendingCapture, maxIter, iteration, waitTicks);
-                return;
-            }
-        }
-        reportExecutionResult(sender, command, success, errorMessage, commandOutput,
-                outputCapture != null && outputCapture.isTruncated(), maxIter, iteration);
     }
 
-    private void sendExecutionResultLater(CommandSender sender, String command, boolean success, String error,
-                                          CommandOutputCapture capture, int maxIter, int iteration, long waitTicks) {
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            if (sender instanceof Player player && !player.isOnline()) return;
-            reportExecutionResult(sender, command, success, error, capture.getOutput(),
-                    capture.isTruncated(), maxIter, iteration);
-        }, waitTicks);
+    private void executeForPlayer(Player player, List<Command> commandChain, String command, String description,
+                                  int maxIterations, int iteration, String runtimeContext) {
+        FoliaTasks.entity(plugin, player, () -> {
+            if (!player.isOnline()) {
+                finishRequest(player.getUniqueId());
+                return;
+            }
+            if (plugin.getPermissionManager().hasPermission(player, "mcaia.use")) {
+                sendToSender(player, "<gray>⚙ " + description + "...</gray>");
+                String playerName = senderName(player);
+                FoliaTasks.global(plugin, () -> dispatchAsConsole(player, playerName, command,
+                        maxIterations, iteration, runtimeContext));
+                return;
+            }
+
+            boolean playerMode = plugin.getConfig().getBoolean("permissions.player-command-mode.enabled", false);
+            boolean hasAiPermission = plugin.getPermissionManager().hasPermission(player, "mcaia.player");
+            boolean hasCommandPermission = !commandChain.isEmpty();
+            for (Command commandPart : commandChain) {
+                if (commandPart == null) {
+                    hasCommandPermission = false;
+                    break;
+                }
+                boolean allowed = commandPart.testPermissionSilent(player);
+                if (!allowed) {
+                    String required = commandPart.getPermission();
+                    allowed = required != null && !required.isBlank()
+                            && plugin.getPermissionManager().hasPermission(player, required);
+                }
+                if (!allowed) {
+                    hasCommandPermission = false;
+                    break;
+                }
+            }
+            if (!playerMode || !hasAiPermission || commandChain.isEmpty() || !hasCommandPermission) {
+                String reason = commandChain.isEmpty() || commandChain.contains(null)
+                        ? "Unknown commands cannot run in player access mode."
+                        : "Player command permission check denied this command.";
+                reportExecutionResult(player, command, false, reason, "", false,
+                        maxIterations, iteration, runtimeContext);
+                return;
+            }
+
+            sendToSender(player, "<gray>⚙ " + description + "...</gray>");
+            fileLogger.info("[EXECUTE → " + senderName(player) + "] " + command);
+            boolean success;
+            String error = null;
+            try {
+                success = player.performCommand(command);
+                if (!success) error = "Command returned false (may not exist or had no effect)";
+            } catch (RuntimeException e) {
+                success = false;
+                error = safeError(e);
+            }
+            webhookLogger.logCommandExecuted(senderName(player), command, success, error);
+            reportExecutionResult(player, command, success, error, "", false,
+                    maxIterations, iteration, runtimeContext);
+        }, () -> finishRequest(player.getUniqueId()));
+    }
+
+    /** Must run on the global region because this dispatches through the console source. */
+    private void dispatchAsConsole(CommandSender requester, String requesterName, String command, int maxIterations,
+                                   int iteration, String runtimeContext) {
+        boolean success;
+        String error = null;
+        CommandOutputCapture capture = null;
+        try {
+            capture = new CommandOutputCapture(Bukkit.getConsoleSender());
+            success = Bukkit.dispatchCommand(capture.createSender(), command);
+            if (!success) error = "Command returned false (may not exist or had no effect)";
+        } catch (RuntimeException e) {
+            success = false;
+            error = safeError(e);
+        }
+        String output = capture == null ? "" : capture.getOutput();
+        webhookLogger.logCommandExecuted(requesterName, command, success, error);
+        fileLogger.info("[EXEC_RESULT] success=" + success + " cmd=" + command
+                + (error == null ? "" : " error=" + error));
+
+        if (success && output.isBlank()) {
+            long waitTicks = Math.max(0, plugin.getConfig().getLong("ai.command-output-wait-ticks", 30));
+            if (waitTicks > 0) {
+                CommandOutputCapture pending = capture;
+                String finalError = error;
+                FoliaTasks.globalDelayed(plugin, () -> reportExecutionResult(requester, command, true,
+                        finalError, pending == null ? "" : pending.getOutput(),
+                        pending != null && pending.isTruncated(), maxIterations, iteration, runtimeContext), waitTicks);
+                return;
+            }
+        }
+        reportExecutionResult(requester, command, success, error, output,
+                capture != null && capture.isTruncated(), maxIterations, iteration, runtimeContext);
     }
 
     private void reportExecutionResult(CommandSender sender, String command, boolean success, String error,
-                                       String output, boolean outputTruncated, int maxIter, int iteration) {
-        JsonObject execResult = new JsonObject();
-        execResult.addProperty("type", "execution_result");
-        execResult.addProperty("success", success);
-        execResult.addProperty("command", command);
-        execResult.addProperty("output", output);
-        execResult.addProperty("output_truncated", outputTruncated);
-        if (error != null) {
-            execResult.addProperty("error", error);
-            sendToSender(sender, "<red>⚠ Command error: " + error + "</red>");
-        }
-        UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
-        conversations.addUserTurn(uuid, execResult.toString());
+                                       String output, boolean truncated, int maxIterations, int iteration,
+                                       String runtimeContext) {
+        FoliaTasks.forSender(plugin, sender, () -> {
+            JsonObject result = new JsonObject();
+            result.addProperty("type", "execution_result");
+            result.addProperty("success", success);
+            result.addProperty("command", command);
+            result.addProperty("output", output);
+            result.addProperty("output_truncated", truncated);
+            if (error != null) {
+                result.addProperty("error", error);
+                sendToSender(sender, "<red>⚠ Command error: " + error + "</red>");
+            }
+            conversations.addUserTurn(uuidOf(sender), result.toString());
+            runAsyncLoop(sender, maxIterations, iteration + 1, runtimeContext);
+        }, () -> finishRequest(uuidOf(sender)));
+    }
 
-        runAsyncLoop(sender, maxIter, iteration + 1);
+    private void handleServerQuery(CommandSender sender, JsonObject response, int maxIterations,
+                                   int iteration, String runtimeContext) {
+        String query = safeString(response, "query", "");
+        String senderName = senderName(sender);
+        if (query.isBlank()) {
+            JsonObject error = new JsonObject();
+            error.addProperty("type", "server_query_result");
+            error.addProperty("query", "");
+            error.addProperty("error", "Missing query field in server_query response.");
+            conversations.addUserTurn(uuidOf(sender), error.toString());
+            runAsyncLoop(sender, maxIterations, iteration + 1, runtimeContext);
+            return;
+        }
+        fileLogger.debug("[SERVER_QUERY → " + senderName + "] " + query);
+        dataProvider.query(query, result -> {
+            conversations.addUserTurn(uuidOf(sender), result.toString());
+            fileLogger.debug("[QUERY_RESULT → " + senderName + "] " + result);
+            runAsyncLoop(sender, maxIterations, iteration + 1, runtimeContext);
+        });
     }
 
     private JsonObject getAccessContext(CommandSender sender) {
         JsonObject access = new JsonObject();
         Player player = sender instanceof Player p ? p : null;
-        boolean adminAccess = player == null
-                || plugin.getPermissionManager().hasPermission(player, "mcaia.use");
-        access.addProperty("ai_access", adminAccess ? "console" : "player");
+        boolean admin = player == null || plugin.getPermissionManager().hasPermission(player, "mcaia.use");
+        access.addProperty("ai_access", admin ? "console" : "player");
+        access.addProperty("is_op", player == null || player.isOp());
+        var allowed = new com.google.gson.JsonArray();
+        var effectivePermissions = new com.google.gson.JsonArray();
         if (player != null) {
-            access.addProperty("is_op", player.isOp());
-            if (adminAccess) {
-                access.add("allowed_commands", new com.google.gson.JsonArray());
-            } else {
-                com.google.gson.JsonArray allowed = new com.google.gson.JsonArray();
-                if (plugin.getConfig().getBoolean("permissions.player-command-mode.enabled", false)
-                        && plugin.getPermissionManager().hasPermission(player, "mcaia.player")) {
-                    PlayerCommandAccess.allowedCommands(player, plugin.getPermissionManager()).forEach(allowed::add);
-                }
-                access.add("allowed_commands", allowed);
-            }
-        } else {
-            access.addProperty("is_op", true);
-            access.add("allowed_commands", new com.google.gson.JsonArray());
+            player.getEffectivePermissions().stream()
+                    .filter(info -> info.getValue())
+                    .map(info -> info.getPermission().toLowerCase(Locale.ROOT))
+                    .distinct()
+                    .sorted()
+                    .limit(512)
+                    .forEach(effectivePermissions::add);
+            access.addProperty("permission_backend", plugin.getPermissionManager().getActiveBackend().name());
         }
+        access.add("effective_permissions", effectivePermissions);
+        access.add("allowed_commands", allowed);
         return access;
     }
 
-    // ── Server query handler ──────────────────────────────────────────────────
-
-    private void handleServerQuery(CommandSender sender, JsonObject aiResponse, int maxIter, int iteration) {
-        String query = safeString(aiResponse, "query", "");
-        UUID uuid = sender instanceof Player p ? p.getUniqueId() : new UUID(0, 0);
-
-        if (query.isBlank()) {
-            JsonObject errResult = new JsonObject();
-            errResult.addProperty("type",  "server_query_result");
-            errResult.addProperty("query", "");
-            errResult.addProperty("error", "Missing query field in server_query response.");
-            conversations.addUserTurn(uuid, errResult.toString());
-            runAsyncLoop(sender, maxIter, iteration + 1);
-            return;
-        }
-
-        fileLogger.debug("[SERVER_QUERY → " + sender.getName() + "] " + query);
-
-        // ServerDataProvider uses Bukkit API — call on main thread (we are already here)
-        JsonObject queryResult = dataProvider.query(query);
-        conversations.addUserTurn(uuid, queryResult.toString());
-
-        fileLogger.debug("[QUERY_RESULT → " + sender.getName() + "] " + queryResult);
-
-        // Continue the loop
-        runAsyncLoop(sender, maxIter, iteration + 1);
+    private void sendToSender(CommandSender sender, String message) {
+        FoliaTasks.forSender(plugin, sender, () -> {
+            String prefix = plugin.getConfig().getString("prefix",
+                    "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
+            try {
+                sender.sendMessage(MM.deserialize(prefix + message));
+            } catch (RuntimeException ignored) {
+                sender.sendMessage(Component.text("[AI] " + message));
+            }
+        }, () -> {});
     }
 
-    // ── Utility helpers ───────────────────────────────────────────────────────
-
-    /** Send a MiniMessage-formatted string to the sender with the plugin prefix. */
-    private void sendToSender(CommandSender sender, String miniMessage) {
-        String prefix = plugin.getConfig().getString("prefix",
-                "<gradient:#00d2ff:#3a7bd5><b>[AI]</b></gradient> <gray>»</gray> ");
-        try {
-            sender.sendMessage(MM.deserialize(prefix + miniMessage));
-        } catch (Exception e) {
-            // Fallback: send plain text if MiniMessage parsing fails
-            sender.sendMessage("[AI] " + miniMessage.replaceAll("<[^>]+>", ""));
-        }
+    private UUID uuidOf(CommandSender sender) {
+        return sender instanceof Player player ? player.getUniqueId() : CONSOLE_UUID;
     }
 
-    /** Dispatch a Runnable on the main server thread. */
-    private void sync(Runnable r) {
-        plugin.getServer().getScheduler().runTask(plugin, r);
+    /** Call only while handling a player on that player's owning region. */
+    private String senderName(CommandSender sender) {
+        return sender instanceof Player player
+                ? plugin.getPluginCompat().getCleanName(player)
+                : sender.getName();
     }
 
-    private String safeString(JsonObject obj, String key, String fallback) {
-        try { return obj.has(key) ? obj.get(key).getAsString() : fallback; }
-        catch (Exception e) { return fallback; }
+    private void finishRequest(UUID uuid) {
+        activeRequests.remove(uuid);
+    }
+
+    private String safeString(JsonObject object, String key, String fallback) {
+        try { return object.has(key) ? object.get(key).getAsString() : fallback; }
+        catch (RuntimeException e) { return fallback; }
+    }
+
+    private String safeError(Throwable throwable) {
+        String message = throwable.getMessage();
+        return message == null || message.isBlank() ? throwable.getClass().getSimpleName() : message;
     }
 }

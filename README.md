@@ -1,197 +1,404 @@
 # MCAIA
 
-**MCAIA** is a Paper server plugin that connects Minecraft chat to Gemini, Groq, OpenAI, Anthropic Claude, xAI Grok, or OpenRouter. Ask a question, check the server, or request an action in natural language. The AI can inspect live server data, ask follow-up questions, run commands, and use command output to complete multi-step tasks.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/TIS199/MCAIA/main/MCAIA.png" alt="MCAIA" width="720">
+</p>
+
+<h3 align="center">Talk to your Minecraft server. MCAIA handles the command complexity.</h3>
+
+<p align="center">
+  <a href="https://github.com/TIS199/MCAIA/releases"><img src="https://img.shields.io/github/v/release/TIS199/MCAIA?include_prereleases&label=release" alt="Release"></a>
+  <a href="https://hangar.papermc.io/TIS199/MCAIA"><img src="https://img.shields.io/badge/Hangar-PaperMC-fff?logo=papermc&logoColor=black" alt="Hangar"></a>
+  <img src="https://img.shields.io/badge/Paper-26.2--26.3-fff?logo=papermc&logoColor=black" alt="Paper 26.2-26.3">
+  <img src="https://img.shields.io/badge/Java-25-fff?logo=openjdk&logoColor=black" alt="Java 25">
+  <a href="https://github.com/TIS199/MCAIA/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TIS199/MCAIA" alt="License"></a>
+</p>
 
 > [!WARNING]
-> **MCAIA is still under active development.** Features, configuration, and behavior may change, and bugs (the less charming kind) or data loss are possible. Use it on a test server or with backups, and don't rely on it for production server administration just yet.
+> **MCAIA is still under active development.** It can execute Minecraft commands with server-level access, and the command guard is a safeguard—not a complete security boundary. Test on a disposable server or keep reliable backups, review the command blocklist, and only grant AI access to people you trust.
 
-> [!WARNING]
-> MCAIA can run commands as the server console. The configurable command blocklist is a safeguard, not a complete security boundary—and definitely not a tiny digital force field. Review AI-issued actions, configure the blocklist for your server, and only grant access to players you trust.
- 
-> **Supported Versions: PaperMC 26.2 , 26.3**
+## What is MCAIA?
 
-## Download
+**MCAIA (Minecraft AI Admin)** is an AI-powered administration assistant for Paper servers.
 
-[![GitHub Release (including pre-releases)](https://img.shields.io/github/v/release/TIS199/MCAIA?include_prereleases)](https://github.com/TIS199/MCAIA/releases)
-[![Hangar Release](https://img.shields.io/badge/Hangar-Release-blue?logo=papermc)](https://hangar.papermc.io/TIS199/MCAIA)
+Instead of remembering a long list of commands, describe what you need in plain language:
+
+```text
+/ai how many players are online?
+/ai what's the current TPS?
+/ai show me information about Steve
+/ai list the installed plugins
+/ai give everyone Speed II for 5 minutes
+```
+
+MCAIA can inspect the live server, ask you for missing information, execute permitted commands, read the command result, and continue the task when another step is needed.
+
+That makes it especially useful for **new server owners and admins** who know what they want to do, but do not yet know every Minecraft command, plugin command, or syntax detail.
+
+## Why MCAIA?
+
+Running a Minecraft server often means learning dozens of commands across vanilla Minecraft, permissions plugins, moderation tools, and other plugins.
+
+MCAIA turns that into a conversation.
+
+You can ask:
+
+- **Questions** — "How many players are online?"
+- **Diagnostics** — "Is the server TPS healthy?"
+- **Lookups** — "Tell me about Steve."
+- **Administration tasks** — "Give all players Speed II for 5 minutes."
+- **Multi-step tasks** — "Find the nearest village and teleport me there." MCAIA can obtain command output first, then use the real result for the next step instead of guessing.
+- **Follow-up questions** — the AI can ask for missing information and continue after your reply.
+
+The goal is simple: **make server administration easier without pretending that AI should have unlimited control.**
 
 ## Features
 
+### Natural-language server assistant
 
-![MCAIA](./MCAIA.png)
-- Natural-language requests through a configurable in-game command (default: `/ai`).
-- Multi-provider, multi-step AI interactions: answer players, query live server state, ask follow-up questions, or execute commands and use captured output to plan follow-up actions.
-- Live queries for online players, player details, worlds, installed plugins, TPS, and general server information.
-- Per-player conversation context, history viewing/reset, and automatic expiry after inactivity.
-- Configurable provider and model priority list with smart fallback on rate limits, overloads, and network errors.
-- Separate `mcaia.use` administrator access and optional, player-permission-limited `mcaia.player` access.
-- Strict command guard that blocks dangerous commands and checks nested commands before dispatch.
-- Permission backends that use Bukkit permissions with LuckPerms/Vault detection and an OP/configured-player fallback.
-- Optional Geyser/Floodgate Bedrock-player support.
-- Per-player request cooldown, daily rolling file logs, optional admin Discord webhook notifications, and a configurable welcome message.
-- Anonymous server metrics through bStats.
-- Runtime admin tools for status, reload, history cleanup, and debug mode.
+Use a configurable `/ai` command to talk to the assistant in plain language. The command can be renamed in `config.yml`.
+
+### Live server awareness
+
+MCAIA can query:
+
+- Online player list
+- Online player details: UUID, game mode, health, hunger, world, coordinates, OP status, and ping
+- Worlds and player counts
+- Installed plugins and their versions/status
+- 1-minute, 5-minute, and 15-minute TPS
+- Server version, Minecraft version, MOTD, online-mode state, player count, and player limit
+
+### Multi-step AI workflows
+
+MCAIA is built around a structured loop rather than a single text reply:
+
+```text
+Player request
+      ↓
+AI decision
+      ↓
+Server query or command
+      ↓
+Real server result
+      ↓
+AI decision again
+      ↓
+Final answer / next action
+```
+
+For example, a task that needs a real seed, location, or command result can execute a read command first and then use the captured output for the next step.
+
+### Multiple AI providers
+
+Configure one or several providers:
+
+- Google Gemini
+- Groq
+- OpenRouter
+- OpenAI
+- Anthropic Claude
+- xAI Grok
+- Local Ollama models
+
+Provider order and model fallback lists are configurable in `models.yml`; `ai.provider-order` in `config.yml` can override provider priority. With smart switching enabled, MCAIA can move through configured providers/models when requests fail, are rate-limited, or encounter retryable service errors.
+
+Ollama runs locally and does not need an API key. Start Ollama, pull a chat model, then configure:
+
+```yaml
+ai:
+  providers:
+    ollama:
+      enabled: true
+      base-url: "http://127.0.0.1:11434"
+      model: "llama3.1:8b"
+  provider-order: ["ollama", "gemini", "openai"]
+```
+
+The model value must match a model installed in Ollama. Keep the Ollama endpoint private; the plugin sends conversation history and server context to it.
+
+### Permission-aware access
+
+MCAIA supports two access styles:
+
+- **Administrator mode** — `mcaia.use` gives the AI console-level command access for the player using `/ai`.
+- **Player mode** — when enabled, `mcaia.player` allows a user to use the AI with the permissions they already have. MCAIA checks the command permission before dispatching it.
+
+LuckPerms and Vault are detected automatically; without them, MCAIA can use an OP/configured-player fallback.
+
+### Command safety guard
+
+The plugin has multiple layers of command protection, including:
+
+- Hard-blocked administrative and privilege-escalating command roots
+- Custom `banned-commands.yml` entries
+- Namespaced command handling
+- Nested `execute` inspection
+- Command-chain rejection (`;`, `|`, `&&`, etc.)
+- Wrapper detection for commands such as `sudo`
+- Player-mode permission checks before command dispatch
+- A configurable per-player cooldown
+
+The guard is designed to reduce dangerous mistakes and misuse. **It is not a sandbox and should not be treated as one.**
+
+### Conversation context
+
+Each player gets their own in-memory conversation history. MCAIA can:
+
+- Keep recent turns for context
+- Show recent history with `/ai history`
+- Clear history with `/ai reset`
+- Automatically expire idle conversations after 10 minutes
+- Ask a private follow-up question whose next chat message becomes the answer
+
+A player's old conversation state is cleared when they join the server again.
+
+### Bedrock support
+
+With Geyser + Floodgate installed, Bedrock players can be detected and optionally allowed to use `/ai`.
+
+### Logging and monitoring
+
+Optional administration features include:
+
+- Daily rolling plugin logs
+- Configurable Discord admin webhook events
+- Runtime `/aiadmin status`
+- `/aiadmin reload`
+- `/aiadmin clearhistory <player|*>`
+- `/aiadmin debug`
+- Update notifications from GitHub Releases and Hangar
+- Anonymous bStats metrics
+
+## Example requests
+
+These are the kinds of requests MCAIA is designed to understand:
+
+```text
+/ai how many players are online?
+/ai what's our current TPS?
+/ai list all installed plugins
+/ai show me info about Steve
+/ai give every online player Speed II for 5 minutes
+/ai find the nearest village and teleport me there
+/ai what's the server version and MOTD?
+/ai ask me which player I want to target
+```
+
+MCAIA will refuse or block requests that violate its configured/hard-coded safety rules, such as attempts to use blocked administrative commands or privilege-escalating wrappers.
 
 ## Requirements
 
-- A Paper server running **Java 25**.
-- At least one API key for Gemini, Groq, OpenAI, Anthropic, xAI, or OpenRouter.
-- Paper runtime compatibility with the Paper API version used to build this project. The plugin metadata declares API version `1.21`; the build currently compiles against Paper `26.2`.
+- **Paper 26.2–26.3 or Folia**
+- **Java 25**
+- At least one supported remote API key, or an enabled Ollama model
 
-Vault, LuckPerms, Geyser, and Floodgate are optional. MCAIA can run without them.
+Optional integrations:
+
+- LuckPerms
+- Vault
+- Geyser
+- Floodgate
+
+MCAIA does not require those optional plugins to operate.
 
 ## Installation
 
-1. Download the MCAIA JAR from the project's GitHub Releases (or build it yourself; see [Building](#building)).
-2. Place the JAR in your server's `plugins/` directory.
-3. Start the server once to create `plugins/MCAIA/` and its default configuration files.
-4. Open `plugins/MCAIA/config.yml`, add at least one provider API key, and explicitly accept the Terms of Service:
+1. Download the latest MCAIA JAR from [GitHub Releases](https://github.com/TIS199/MCAIA/releases) or build it from source.
+2. Put the JAR into your server's `plugins/` folder.
+3. Start the server once so `plugins/MCAIA/` and its configuration files are created.
+4. Open `plugins/MCAIA/config.yml`.
+5. Review the Terms of Service and set:
 
    ```yaml
    tos-accepted: true
+   ```
+
+6. Add a provider API key, or enable an Ollama model, for example:
+
+   ```yaml
    ai:
      providers:
        gemini:
          api-key: "YOUR_GEMINI_API_KEY"
    ```
 
-5. Restart the server. The plugin will not process `/ai` requests until `tos-accepted` is `true`.
+   For Ollama, set `ai.providers.ollama.enabled: true`, `base-url`, and `model` in `config.yml`; no API key is needed.
 
-Provider keys are available from [Google AI Studio](https://aistudio.google.com/apikey), [Groq](https://console.groq.com/keys), [OpenAI](https://platform.openai.com/api-keys), [Anthropic](https://console.anthropic.com/), [xAI](https://console.x.ai/), and [OpenRouter](https://openrouter.ai/). Keep keys private and do not commit your populated `config.yml`.
+7. Check `models.yml` and choose your provider/model order.
+8. Restart the server.
+9. Use:
+
+   ```text
+   /ai help
+   ```
+
+Keep API keys private. Never commit a populated `config.yml` to a public repository.
+
+## Configuration files
+
+MCAIA creates and uses:
+
+| File | Purpose |
+| --- | --- |
+| `config.yml` | TOS acceptance, providers/API keys, command name, permissions, cooldown, logging, Geyser/Floodgate settings, messages |
+| `models.yml` | Per-provider model fallback order and default provider priority |
+| `banned-commands.yml` | Additional command roots that the AI must never execute |
+| `logs/` | Daily plugin logs when file logging is enabled |
+
+Some of the most useful settings are:
+
+```yaml
+ai:
+  max-tokens: 2048
+  temperature: 0.3
+  max-history-length: 10
+  query-timeout-seconds: 60
+  max-iterations: 8
+  smart-switching: true
+
+rate-limit:
+  enabled: true
+  cooldown-seconds: 15
+
+permissions:
+  fallback-require-op: true
+  player-command-mode:
+    enabled: false
+
+logging:
+  file-logging: true
+  debug-mode: false
+  admin-webhook-url: ""
+```
+
+See the generated configuration comments for the complete list of options.
+
+> [!CAUTION]
+> **Debug mode can expose AI request/response payloads in server logs.** Do not enable it casually on a production server.
 
 ## Commands
 
-The player command defaults to `/ai`; its name can be changed with `command-name` in `config.yml`. A restart is required after changing it.
-
 | Command | Description |
 | --- | --- |
-| `/ai <prompt>` | Ask a question or request a server action |
+| `/ai <prompt>` | Ask a question or request an action |
 | `/ai help` | Show usage and examples |
-| `/ai history` | View up to the last six stored conversation turns |
-| `/ai reset` | Clear your conversation history and pending question |
+| `/ai history` | Show recent conversation history |
+| `/ai reset` | Clear your conversation history |
 | `/aiadmin` | Show admin command help |
-| `/aiadmin status` | Show configuration, permission backend, and detected integrations |
-| `/aiadmin reload` | Reload configuration files and relevant settings |
-| `/aiadmin clearhistory <player\|*>` | Clear history for an online player, or all online players |
+| `/aiadmin status` | Show configuration, provider, model, and integration status |
+| `/aiadmin reload` | Reload MCAIA configuration |
+| `/aiadmin clearhistory <player|*>` | Clear AI history for one online player or all online players |
 | `/aiadmin debug` | Toggle debug logging until the next restart/reload |
-
-The console can use `/ai` too. When the AI asks a player a follow-up question, that player's next chat message is treated as a private reply and is not broadcast publicly.
 
 ## Permissions
 
 | Permission | Purpose | Default |
 | --- | --- | --- |
-| `mcaia.use` | Full console-level AI command access | Operators |
-| `mcaia.player` | Use `/ai` with the player's own command permissions; requires `permissions.player-command-mode.enabled` | Not granted |
-| `mcaia.admin` | Use `/aiadmin` | Operators |
-| `mcaia.reload` | Declared reload permission node; `/aiadmin reload` currently checks `mcaia.admin` | Operators |
-| `mcaia.bypass-rate-limit` | Bypass the player cooldown | Operators |
+| `mcaia.use` | Full console-level AI access | Operators |
+| `mcaia.player` | Player-scoped AI access when player mode is enabled | Not granted |
+| `mcaia.admin` | Access to `/aiadmin` | Operators |
+| `mcaia.reload` | Declared reload permission node | Operators |
+| `mcaia.bypass-rate-limit` | Bypass `/ai` cooldown | Operators |
 | `mcaia.history` | View conversation history | Operators |
 | `mcaia.*` | Grants all MCAIA permissions | Not granted |
 
-When LuckPerms is installed, Bukkit permission checks use its permission system. Vault is detected as an alternative permission integration. Without either, MCAIA uses the configured OP/player-list fallback. In fallback mode, admin and rate-limit bypass actions require OP.
+## Security model
 
-Player mode is off by default. When enabled, give trusted users `mcaia.player`; command execution is checked against their live Bukkit permissions and dispatched as that player. Admins with `mcaia.use` retain console-level command access. `models.yml` controls provider order and each provider's model fallback list. Add one or more keys under `ai.providers`. The default catalog includes Gemini free-tier candidates and OpenRouter `:free` models, but free access and quotas can change or be region/account-dependent. Direct OpenAI, Anthropic, and xAI API model usage may be billed; verify provider pricing before enabling those keys.
+MCAIA is intentionally opinionated about server control.
 
-For example, `config.yml` can hold multiple provider keys while `models.yml` chooses which one is tried first:
+The AI is told to use a structured JSON protocol and the plugin independently validates the action before dispatching it. The guard normalizes command text, rejects command chaining, checks namespaced aliases, inspects nested `execute` commands, and blocks configured/hard-coded dangerous command roots.
 
-```yaml
-# config.yml
-ai:
-  providers:
-    openai:
-      api-key: "YOUR_OPENAI_API_KEY"
-    anthropic:
-      api-key: "YOUR_ANTHROPIC_API_KEY"
-```
+For administrator-level access, MCAIA dispatches commands through a console-compatible sender and can capture up to **8,000 characters** of command output for the next AI decision. When the first result is empty, it can wait a configurable number of ticks for asynchronous output.
 
-```yaml
-# models.yml
-provider-order:
-  - anthropic
-  - openai
-
-anthropic:
-  models:
-    - claude-sonnet-4-5
-openai:
-  models:
-    - gpt-4o-mini
-```
-
-## Configuration
-
-The plugin creates these files in `plugins/MCAIA/`:
-
-| File | Purpose |
-| --- | --- |
-| `config.yml` | Terms acceptance, API key, command, permissions, cooldown, logging, Bedrock support, and messages |
-| `models.yml` | Provider priority and each provider's model fallback order |
-| `banned-commands.yml` | Additional command roots to block; MCAIA also has built-in blocks for privileged and command-wrapping operations |
-| `logs/` | Daily plugin logs when file logging is enabled |
-
-Notable `config.yml` settings include:
-
-- `ai.max-tokens`, `ai.temperature`, `ai.max-history-length`, `ai.query-timeout-seconds`, and `ai.max-iterations`.
-- `ai.providers.<provider>.api-key`, `ai.smart-switching`, and `ai.command-output-wait-ticks`.
-- `permissions.player-command-mode.enabled`, `permissions.fallback-require-op`, and `permissions.permitted-players`.
-- `rate-limit.enabled` and `rate-limit.cooldown-seconds`.
-- `logging.file-logging`, `logging.debug-mode`, `logging.admin-webhook-url`, and `logging.log-events`.
-- `geyser.allow-bedrock-players` and `geyser.strip-bedrock-prefix`.
-
-See the generated configuration comments for the complete options and defaults. Avoid enabling debug mode on a production server: it can write full AI request and response payloads to logs.
-
-When MCAIA runs an admin-level command, it uses Paper's vanilla-compatible feedback sender to capture up to 8,000 characters of command output for the next decision. If a command initially produces no output, MCAIA waits for the configured tick delay to collect asynchronous output. Commands that only write to server logs or direct standard output may not be captured.
+That makes multi-step tasks possible, but it also means the AI can interact with real server state. Treat MCAIA like an automation tool with server privileges—not like a harmless chat bot.
 
 ## Data and privacy
 
-Using MCAIA sends prompts and relevant conversation context to the configured AI provider. The plugin can also include current server context, requested live server data, and (in player mode) that player's allowed-command labels in those API interactions.
+MCAIA sends prompts and relevant conversation context to the AI provider you configure. Depending on the request and access mode, that conversation can also contain:
 
-Captured command output is included in the provider conversation too. Treat it as potentially sensitive: commands may print player or server data, and enabling debug mode can additionally write request/response payloads to local logs.
+- Server context such as player count and TPS
+- Live server query results
+- Player information requested by the AI
+- Captured command output
+- Player-mode allowed command labels
 
-MCAIA also initializes [bStats](https://bstats.org/), which collects anonymous plugin/server metrics subject to the bStats privacy policy and server configuration.
+Command output can contain player names, coordinates, configuration details, or other server data. Review your provider's data handling and retention policies before enabling the plugin.
 
-Server owners should review this behavior and the Terms of Service in `config.yml` before enabling the plugin. Treat prompts, server logs, webhook events, API keys, and generated configuration as potentially sensitive.
+MCAIA also initializes bStats for anonymous plugin/server metrics. See the [bStats privacy policy](https://bstats.org/getting-started/privacy).
 
-## Building
+## AI provider notes
 
-The Gradle wrapper is included. With Java 25 installed, run:
+Provider access and model availability change over time. Free tiers can be limited by account, region, quotas, or provider policy. Paid providers may charge for API usage.
+
+Supported provider families:
+
+- Gemini
+- Groq
+- OpenRouter
+- OpenAI
+- Anthropic Claude
+- xAI Grok
+
+MCAIA's provider/model selection is driven by `models.yml`, so you can change your preferred models without rewriting the plugin.
+
+## Updating
+
+MCAIA can check GitHub Releases and Hangar for newer versions and notify users with `mcaia.admin` when an update is available.
+
+Always review the release notes and configuration changes before upgrading a live server.
+
+## Building from source
+
+MCAIA uses Gradle and Java 25.
 
 ```bash
 ./gradlew build
 ```
 
-The distributable shaded plugin JAR is created under `build/libs/` as `MCAIA-1.2.0.jar`. On Windows, use `gradlew.bat build`.
+The shaded plugin JAR is produced under `build/libs/`.
 
-Optional local deployment task:
+On Windows:
 
-```bash
-./gradlew copyToServer
+```bat
+gradlew.bat build
 ```
 
-This task copies the JAR to a developer-specific Paper plugins directory configured in `build.gradle.kts`; edit that destination before using it on another machine.
+## Compatibility
 
-## Compatibility integrations
+MCAIA supports **Paper and Folia** using their shared region, entity, global, and async schedulers.
 
-- **LuckPerms / Vault:** Permission integration. MCAIA checks standard Bukkit permission nodes.
-- **Geyser / Floodgate:** Optional Bedrock player detection and access controls.
-- **EssentialsX / ViaVersion:** Detected for status/logging; MCAIA does not require them.
+Optional integrations:
 
-## Join the adventure
+- **LuckPerms / Vault** — permission backend integration
+- **Geyser / Floodgate** — Bedrock player detection and access
+- **EssentialsX / ViaVersion** — detected for compatibility/status reporting
 
-Found a bug? Have an idea that would make MCAIA more useful (or less likely to turn your server into a crater)? Contributions are welcome!
+## Support and community
 
-- **Report bugs:** Open an issue in the repository. Include what you expected, what actually happened, steps to reproduce it, and relevant server logs. Please remove API keys, player data, webhook URLs, and other secrets before posting.
-- **Suggest features:** Open an issue describing the use case and the problem you want solved. A good feature request helps explain the *why*, not just the shape of the shiny new button.
-- **Send a pull request:** Fork the project, make your changes on a branch, and open a PR with a clear summary and testing notes. Keep changes focused, follow the existing code style, and run `./gradlew build` before submitting.
-- **Help other contributors:** Review open issues and PRs, test changes on a disposable server, or improve the documentation. No creeper-defusing certification required.
+Need help, found a bug, or have an idea?
 
-For larger changes, opening an issue first is a great way to discuss the approach before you spend time building it. By contributing, you agree that your contribution is provided under this project's **GPL-3.0-only** license.
+**Discord:** https://discord.gg/C4anUJdynJ
+**GitHub:** https://github.com/TIS199/MCAIA
+
+For bug reports, include your MCAIA version, Paper version, relevant server logs, and the exact request that caused the problem. Remove API keys, webhook URLs, and private player data before posting logs.
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repository.
+2. Create a focused branch for your change.
+3. Test on a disposable Paper server.
+4. Run `./gradlew build`.
+5. Open a pull request with a clear summary and testing notes.
+
+For larger changes, open an issue first so the approach can be discussed before implementation.
 
 ## License
 
-MCAIA is licensed under **GNU GPL version 3 only** (`GPL-3.0-only`). See the [LICENSE](./LICENSE) file for the complete terms. Copyright (c) 2026 TIS199.
+MCAIA is licensed under **GNU GPL v3 only (`GPL-3.0-only`)**.
 
-## Author
+See [LICENSE](./LICENSE) for the full license text.
 
-Created by [TIS199](https://github.com/TIS199) with Gemini and Claude. 
+---

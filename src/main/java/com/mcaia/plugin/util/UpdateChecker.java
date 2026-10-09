@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.mcaia.plugin.ai.ServerDataProvider;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -30,7 +31,7 @@ import java.util.regex.Pattern;
 
 public final class UpdateChecker {
 
-    private static final long CHECK_INTERVAL_TICKS = 24L * 60L * 60L * 20L;
+    private static final long CHECK_INTERVAL_HOURS = 24L;
     private static final String GITHUB_RELEASES_API =
             "https://api.github.com/repos/TIS199/MCAIA/releases?per_page=100";
     private static final String HANGAR_VERSIONS_API =
@@ -39,6 +40,7 @@ public final class UpdateChecker {
             "^[vV]?(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+[0-9A-Za-z.-]+)?$");
 
     private final JavaPlugin plugin;
+    private final ServerDataProvider players;
     private final String installedVersion;
     private final SemanticVersion installed;
     private final OkHttpClient http = new OkHttpClient.Builder()
@@ -49,8 +51,9 @@ public final class UpdateChecker {
 
     private volatile Map<Source, AvailableUpdate> availableUpdates = Map.of();
 
-    public UpdateChecker(JavaPlugin plugin) {
+    public UpdateChecker(JavaPlugin plugin, ServerDataProvider players) {
         this.plugin = plugin;
+        this.players = players;
         this.installedVersion = Objects.requireNonNull(
                 plugin.getPluginMeta().getVersion(), "Plugin version must be configured");
         this.installed = SemanticVersion.parse(installedVersion)
@@ -59,8 +62,7 @@ public final class UpdateChecker {
     }
 
     public void start() {
-        plugin.getServer().getScheduler().runTaskTimerAsynchronously(
-                plugin, this::checkSources, 1L, CHECK_INTERVAL_TICKS);
+        FoliaTasks.asyncRepeating(plugin, this::checkSources, 1, CHECK_INTERVAL_HOURS, TimeUnit.HOURS);
     }
 
     public void notifyIfAvailable(Player player) {
@@ -80,7 +82,7 @@ public final class UpdateChecker {
         check(Source.GITHUB, this::findGitHubUpdate, results, failures);
         check(Source.HANGAR, this::findHangarUpdate, results, failures);
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> publish(results, failures));
+        FoliaTasks.global(plugin, () -> publish(results, failures));
     }
 
     private void check(Source source, UpdateLookup lookup,
@@ -223,10 +225,10 @@ public final class UpdateChecker {
             plugin.getLogger().warning("MCAIA update available: " + installedVersion + " -> "
                     + update.versionName() + " on " + update.source().displayName()
                     + ". Download: " + update.url());
-            for (Player player : plugin.getServer().getOnlinePlayers()) {
-                if (player != null && player.hasPermission("mcaia.admin")) {
-                    sendReminder(player, update);
-                }
+            for (ServerDataProvider.PlayerRef ref : players.playersSnapshot()) {
+                FoliaTasks.entity(plugin, ref.player(), () -> {
+                    if (ref.player().hasPermission("mcaia.admin")) sendReminder(ref.player(), update);
+                }, () -> {});
             }
         }
     }

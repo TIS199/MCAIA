@@ -16,7 +16,8 @@ public final class CommandGuard {
     private static final int MAX_WRAPPER_DEPTH = 32;
     private static final Set<String> ALWAYS_BLOCKED = Set.of(
             "stop", "restart", "restartserver", "reload", "rl", "reloadconfirm",
-            "op", "deop", "whitelist", "ban-ip", "pardon-ip",
+            "op", "deop", "whitelist", "ban", "ban-ip", "banlist", "kick", "pardon", "pardon-ip",
+            "save-off", "save-all", "datapack", "kill", "clear", "setblock", "fill", "clone",
             "lp", "luckperms", "pex", "permissions",
             "plugman", "plugmanx", "pluginmanager", "function", "schedule", "sudo"
     );
@@ -68,13 +69,7 @@ public final class CommandGuard {
         }
 
         if (root.equals("execute")) {
-            int runIndex = -1;
-            for (int i = 1; i < tokens.size(); i++) {
-                if (rootLabel(tokens.get(i)).equals("run")) {
-                    runIndex = i;
-                    break;
-                }
-            }
+            int runIndex = executeRunIndex(tokens);
             if (runIndex < 0 || runIndex + 1 >= tokens.size()) {
                 return "malformed execute";
             }
@@ -91,6 +86,37 @@ public final class CommandGuard {
         }
 
         return null;
+    }
+
+    /** Returns all roots involved in an execute chain, outer command first. */
+    public static List<String> commandRoots(String command) {
+        List<String> roots = new ArrayList<>();
+        if (!collectCommandRoots(command, roots, 0)) return List.of();
+        return List.copyOf(roots);
+    }
+
+    private static boolean collectCommandRoots(String command, List<String> roots, int depth) {
+        if (depth >= MAX_WRAPPER_DEPTH || containsCommandSeparator(command)) return false;
+        List<String> tokens = tokenize(normalize(command));
+        if (tokens == null || tokens.isEmpty()) return false;
+        String root = rootLabel(tokens.get(0));
+        if (root.isEmpty()) return false;
+        roots.add(root);
+        if (!root.equals("execute")) return true;
+
+        int runIndex = executeRunIndex(tokens);
+        return runIndex >= 0 && runIndex + 1 < tokens.size()
+                && collectCommandRoots(join(tokens, runIndex + 1), roots, depth + 1);
+    }
+
+    private static int executeRunIndex(List<String> tokens) {
+        int runIndex = -1;
+        for (int i = 1; i < tokens.size(); i++) {
+            // `run` may also be a scoreboard objective in conditions. The
+            // final standalone token is the Brigadier command delimiter.
+            if (tokens.get(i).equalsIgnoreCase("run")) runIndex = i;
+        }
+        return runIndex;
     }
 
     private static boolean containsCommandSeparator(String command) {
